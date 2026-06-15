@@ -1,0 +1,94 @@
+# generated: 2026-06-11
+# last_updated: 2026-06-11
+# project: user-salse
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+#
+# SPRINT STRATEGY:
+# ================
+# Mock First: All external dependencies (WeChat auth, SMS, WeChat Pay) are mocked.
+# Priority: Get the core business flow working end-to-end before integrating real services.
+# Epic 1 (skeleton + mock auth) → Epic 2 (core business) → Epic 3 (admin) → Epic 4 (rewards) → Epic 5 (WeChat swap)
+
+generated: 2026-06-11
+last_updated: 2026-06-11
+project: user-salse
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  epic-1: in-progress
+  1-1-project-skeleton-init: done
+  1-2-mock-user-auth: done
+  1-3-admin-login: done
+  1-4-commission-engine-skeleton-and-auth-strategy: done
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-user-registration-and-relationship: backlog
+  2-2-invite-code-generation-and-verification: backlog
+  2-3-entry-approval-and-role-activation: backlog
+  2-4-entry-first-reward-booking: backlog
+  2-5-account-quota-view: backlog
+  2-6-quota-repurchase: backlog
+  2-7-team-tree-and-upstream-chain: backlog
+  2-8a-account-sales-sms-verification: backlog
+  2-8b-regular-user-recommendation-reward: backlog
+  2-9a-commission-config-crud: backlog
+  2-9b-self-sell-commission-calculation: backlog
+  2-9c-upstream-chain-commission-tracing: backlog
+  2-9d-commission-idempotency-protection: backlog
+  2-9e-commission-audit-logging: backlog
+  2-10-earnings-dashboard-with-balance-state-machine: backlog
+  2-11-withdrawal-request: backlog
+  2-12-ticket-management-admin: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-user-management: backlog
+  3-2-operations-dashboard: backlog
+  3-3-system-parameter-configuration: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-long-term-reward-scheduled-settlement: backlog
+  4-2-subscription-message-notifications: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-wechat-oauth-auth-switch: backlog
+  5-2-mini-program-login-and-home: backlog
+  5-3-mini-program-invite-and-team: backlog
+  5-4-mini-program-earnings-and-profile: backlog
+  epic-5-retrospective: optional
