@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, DateTime, DECIMAL, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import Column, DateTime, DECIMAL, Enum, ForeignKey, Integer, String, func
 
 from app.core.database import Base
 
@@ -10,7 +10,7 @@ class CommissionRecord(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     amount = Column(DECIMAL(12, 2), nullable=False)
     type = Column(
-        Enum("first_reward", "sale_commission", "team_bonus", "recommend"),
+        Enum("first_reward", "sale_commission", "team_bonus", "recommend", "followup_reward"),
         nullable=False,
     )
     source_user_id = Column(Integer, nullable=True)

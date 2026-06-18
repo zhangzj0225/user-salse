@@ -8,12 +8,12 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    openid = Column(String(64), unique=True, nullable=True)
-    phone = Column(String(11), unique=True, nullable=True)
+    email = Column(String(128), unique=True, nullable=False)
+    password_hash = Column(String(256), nullable=True)
     nickname = Column(String(64), nullable=True)
     avatar_url = Column(String(256), nullable=True)
     role = Column(
-        Enum("user", "distributor", "agent", name="user_role"),
+        Enum("user", "member", "distributor", "agent", name="user_role"),
         server_default="user",
         nullable=False,
     )
@@ -23,7 +23,7 @@ class User(Base):
     account_used = Column(Integer, server_default=text("0"), nullable=False)
     status = Column(
         Enum("pending", "active", "rejected", name="user_status"),
-        server_default="pending",
+        server_default="active",
         nullable=False,
     )
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

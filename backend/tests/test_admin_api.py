@@ -87,10 +87,10 @@ class TestAdminMe:
 
     def test_returns_403_with_user_token(self, client):
         # Login as regular user
-        client.post("/api/v1/auth/send-sms", json={"phone": "13800138000"})
+        client.post("/api/v1/auth/send-email-code", json={"email": "test@example.com"})
         resp = client.post(
             "/api/v1/auth/login",
-            json={"phone": "13800138000", "sms_code": "123456"},
+            json={"email": "test@example.com", "code": "123456"},
         )
         user_token = resp.json()["data"]["token"]
 

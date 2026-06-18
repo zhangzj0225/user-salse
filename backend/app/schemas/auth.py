@@ -1,21 +1,22 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
-class SendSmsRequest(BaseModel):
-    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$")
+class SendEmailCodeRequest(BaseModel):
+    email: EmailStr
+    scene: str = Field(default="login", pattern=r"^(register|login|sale_verify)$")
 
 
 class LoginRequest(BaseModel):
-    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$")
-    sms_code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
     invite_code: Optional[str] = None
 
 
 class UserInfo(BaseModel):
     id: int
-    phone: Optional[str] = None
+    email: str
     nickname: Optional[str] = None
     avatar_url: Optional[str] = None
     role: str

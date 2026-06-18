@@ -19,6 +19,8 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+*.lnk
+debug.log
 
 # Node
 node_modules/

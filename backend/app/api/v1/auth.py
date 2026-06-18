@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.schemas.auth import AdminInfo, LoginRequest, SendSmsRequest, UserInfo
+from app.schemas.auth import AdminInfo, LoginRequest, SendEmailCodeRequest, UserInfo
 from app.services.auth_service import AdminAuthService, get_auth_service
 
 logger = logging.getLogger(__name__)
@@ -19,13 +19,13 @@ class AdminLoginRequest(BaseModel):
     password: str = Field(..., min_length=1)
 
 
-@router.post("/send-sms", response_model=dict)
-def send_sms(request: SendSmsRequest, db: Session = Depends(get_db)):
+@router.post("/send-email-code", response_model=dict)
+def send_email_code(request: SendEmailCodeRequest, db: Session = Depends(get_db)):
     auth_service = get_auth_service()
     try:
-        code = auth_service.send_sms_code(request.phone, db)
+        code = auth_service.send_email_code(request.email, request.scene, db)
     except NotImplementedError:
-        raise HTTPException(status_code=501, detail="SMS service not available")
+        raise HTTPException(status_code=501, detail="Email service not available")
     result = {"message": "验证码已发送"}
     if settings.AUTH_MODE == "mock":
         result["code"] = code
@@ -37,7 +37,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     auth_service = get_auth_service()
     try:
         user, token = auth_service.authenticate(
-            request.phone, request.sms_code, request.invite_code, db
+            request.email, request.code, request.invite_code, db
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

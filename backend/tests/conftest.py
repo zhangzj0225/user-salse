@@ -4,11 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 # CRITICAL: Import models FIRST so they register with Base.metadata
-import app.models.user  # noqa: F401
-import app.models.sms_record  # noqa: F401
-import app.models.admin_user  # noqa: F401
-import app.models.commission_record  # noqa: F401
-import app.models.audit_log  # noqa: F401
+import app.models  # noqa: F401 — imports all models via __init__.py
 from app.core.database import Base
 
 

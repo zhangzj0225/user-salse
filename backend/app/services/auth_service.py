@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.models.admin_user import AdminUser
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.user import User
 
 # Dummy bcrypt hash of "dummy" for constant-time comparison when user not found
@@ -15,12 +16,12 @@ _DUMMY_HASH = "$2b$12$LJ3m4ys3GZfnYMz8kVsKaekyOsqAVtG2X7VOq8MS3DU8N7rthnfKa"
 
 class AuthService(ABC):
     @abstractmethod
-    def send_sms_code(self, phone: str, db: Session) -> str:
+    def send_email_code(self, email: str, scene: str, db: Session) -> str:
         ...
 
     @abstractmethod
     def authenticate(
-        self, phone: str, sms_code: str, invite_code: str | None, db: Session
+        self, email: str, code: str, invite_code: str | None, db: Session
     ) -> tuple[User, str]:
         ...
 
@@ -28,14 +29,12 @@ class AuthService(ABC):
 class MockAuthService(AuthService):
     MOCK_CODE = "123456"
 
-    def send_sms_code(self, phone: str, db: Session) -> str:
-        from app.models.sms_record import SmsRecord
-
+    def send_email_code(self, email: str, scene: str, db: Session) -> str:
         code = self.MOCK_CODE
-        record = SmsRecord(
-            phone=phone,
+        record = EmailVerificationCode(
+            email=email,
             code=code,
-            scene="login",
+            scene=scene,
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
         db.add(record)
@@ -43,38 +42,35 @@ class MockAuthService(AuthService):
         return code
 
     def authenticate(
-        self, phone: str, sms_code: str, invite_code: str | None, db: Session
+        self, email: str, code: str, invite_code: str | None, db: Session
     ) -> tuple[User, str]:
-        from app.models.sms_record import SmsRecord
+        # Verify email code
+        if code != self.MOCK_CODE:
+            raise ValueError("Invalid verification code")
 
-        # Verify SMS code
-        if sms_code != self.MOCK_CODE:
-            raise ValueError("Invalid SMS code")
-
-        # Check latest unverified SMS record
-        sms_record = (
-            db.query(SmsRecord)
+        # Check latest unverified email code
+        record = (
+            db.query(EmailVerificationCode)
             .filter(
-                SmsRecord.phone == phone,
-                SmsRecord.scene == "login",
-                SmsRecord.verified == False,
-                SmsRecord.expires_at > datetime.now(timezone.utc),
+                EmailVerificationCode.email == email,
+                EmailVerificationCode.scene == "login",
+                EmailVerificationCode.verified == False,
+                EmailVerificationCode.expires_at > datetime.now(timezone.utc),
             )
-            .order_by(SmsRecord.created_at.desc())
+            .order_by(EmailVerificationCode.created_at.desc())
             .first()
         )
-        if not sms_record:
-            raise ValueError("SMS code expired or not found")
+        if not record:
+            raise ValueError("Verification code expired or not found")
 
-        sms_record.verified = True
+        record.verified = True
 
-        # Find or create user (INSERT ON DUPLICATE KEY to handle concurrent logins)
-        # Note: invite_code will be processed in Story 2.1 (user registration flow)
-        user = db.query(User).filter(User.phone == phone).first()
+        # Find or create user
+        # Note: invite_code will be processed in Story 3.1 (user registration flow)
+        user = db.query(User).filter(User.email == email).first()
         if not user:
             user = User(
-                openid=f"mock_{phone}",
-                phone=phone,
+                email=email,
                 role="user",
                 status="active",
             )
@@ -87,25 +83,25 @@ class MockAuthService(AuthService):
         token = create_access_token(
             subject=user.id,
             role=user.role,
-            token_type="wechat",
+            token_type="user",
         )
         return user, token
 
 
-class WechatAuthService(AuthService):
-    def send_sms_code(self, phone: str, db: Session) -> str:
-        raise NotImplementedError("WeChat auth not implemented yet")
+class EmailAuthService(AuthService):
+    def send_email_code(self, email: str, scene: str, db: Session) -> str:
+        raise NotImplementedError("Email auth not implemented yet")
 
     def authenticate(
-        self, phone: str, sms_code: str, invite_code: str | None, db: Session
+        self, email: str, code: str, invite_code: str | None, db: Session
     ) -> tuple[User, str]:
-        raise NotImplementedError("WeChat auth not implemented yet")
+        raise NotImplementedError("Email auth not implemented yet")
 
 
 def get_auth_service() -> AuthService:
     if settings.AUTH_MODE == "mock":
         return MockAuthService()
-    return WechatAuthService()
+    return EmailAuthService()
 
 
 class AdminAuthService:
