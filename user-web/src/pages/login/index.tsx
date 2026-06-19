@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [loginForm] = Form.useForm();
   const [registerForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [loginCountdown, setLoginCountdown] = useState(0);
   const [registerCountdown, setRegisterCountdown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -35,6 +36,10 @@ export default function LoginPage() {
   const startCountdown = (
     setter: React.Dispatch<React.SetStateAction<number>>,
   ) => {
+    // F1: 覆盖前先清旧 interval，防止 Tab 切换后旧倒计时残留泄漏
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
     setter(60);
     const timer = setInterval(() => {
       setter((c) => {
@@ -57,12 +62,16 @@ export default function LoginPage() {
       message.warning("请输入邮箱");
       return;
     }
+    // F4: 在途防护，防止重复点击发多封验证码 + 倒计时倍速
+    setSending(true);
     try {
       await authApi.sendEmailCode({ email, scene });
       message.success("验证码已发送");
       startCountdown(setter);
     } catch {
       // 错误已由拦截器处理
+    } finally {
+      setSending(false);
     }
   };
 
@@ -122,23 +131,34 @@ export default function LoginPage() {
                   <Form.Item
                     name="email"
                     label="邮箱"
-                    rules={[{ required: true, message: "请输入邮箱" }]}
+                    rules={[
+                      { required: true, message: "请输入邮箱" },
+                      { type: "email", message: "邮箱格式不正确" },
+                    ]}
                   >
-                    <Input placeholder="请输入邮箱" />
+                    <Input placeholder="请输入邮箱" autoComplete="email" />
                   </Form.Item>
                   <Form.Item
                     name="code"
                     label="验证码"
-                    rules={[{ required: true, message: "请输入验证码" }]}
+                    rules={[
+                      { required: true, message: "请输入验证码" },
+                      {
+                        pattern: /^\d{6}$/,
+                        message: "验证码为 6 位数字",
+                      },
+                    ]}
                   >
                     <Input.Search
                       placeholder="请输入验证码"
+                      maxLength={6}
                       enterButton={
                         loginCountdown > 0
                           ? `${loginCountdown}s`
                           : "获取验证码"
                       }
-                      disabled={loginCountdown > 0}
+                      disabled={loginCountdown > 0 || sending}
+                      loading={sending && loginCountdown === 0}
                       onSearch={() =>
                         handleSendCode(
                           loginForm.getFieldValue("email"),
@@ -171,23 +191,34 @@ export default function LoginPage() {
                   <Form.Item
                     name="email"
                     label="邮箱"
-                    rules={[{ required: true, message: "请输入邮箱" }]}
+                    rules={[
+                      { required: true, message: "请输入邮箱" },
+                      { type: "email", message: "邮箱格式不正确" },
+                    ]}
                   >
-                    <Input placeholder="请输入邮箱" />
+                    <Input placeholder="请输入邮箱" autoComplete="email" />
                   </Form.Item>
                   <Form.Item
                     name="code"
                     label="验证码"
-                    rules={[{ required: true, message: "请输入验证码" }]}
+                    rules={[
+                      { required: true, message: "请输入验证码" },
+                      {
+                        pattern: /^\d{6}$/,
+                        message: "验证码为 6 位数字",
+                      },
+                    ]}
                   >
                     <Input.Search
                       placeholder="请输入验证码"
+                      maxLength={6}
                       enterButton={
                         registerCountdown > 0
                           ? `${registerCountdown}s`
                           : "获取验证码"
                       }
-                      disabled={registerCountdown > 0}
+                      disabled={registerCountdown > 0 || sending}
+                      loading={sending && registerCountdown === 0}
                       onSearch={() =>
                         handleSendCode(
                           registerForm.getFieldValue("email"),
@@ -202,7 +233,7 @@ export default function LoginPage() {
                     label="邀请码"
                     rules={[{ required: true, message: "请输入邀请码" }]}
                   >
-                    <Input placeholder="请输入邀请码" />
+                    <Input placeholder="请输入邀请码" autoComplete="off" />
                   </Form.Item>
                   <Button
                     type="primary"

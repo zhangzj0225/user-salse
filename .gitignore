@@ -27,7 +27,7 @@ node_modules/
 npm-debug.log*
 
 # Build outputs
-mini-program/dist/
+user-web/dist/
 admin-web/dist/
 
 # Database

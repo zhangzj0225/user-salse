@@ -387,7 +387,7 @@ CREATE TABLE notification_logs (
 #### Decision 2: 双端 JWT 认证
 
 **User Web 端（邮箱+验证码）:**
-1. 用户输入邮箱 → POST `/api/v1/auth/send-code` {email, scene}
+1. 用户输入邮箱 → POST `/api/v1/auth/send-email-code` {email, scene}
 2. 系统发送验证码到邮箱
 3. 用户输入验证码 + 邀请码（注册时必填）→ POST `/api/v1/auth/register` {email, code, invite_code}
 4. 后端验证码校验 → 邀请码校验 → 创建用户 → 建立上下级关系 → 邀请码失效 → 签发 JWT
@@ -460,7 +460,7 @@ CREATE TABLE notification_logs (
 
 ```
 # 认证
-POST   /api/v1/auth/send-code           # 发送邮箱验证码
+POST   /api/v1/auth/send-email-code     # 发送邮箱验证码
 POST   /api/v1/auth/register            # 注册（邀请码必填）
 POST   /api/v1/auth/login               # 登录（邮箱+验证码）
 POST   /api/v1/auth/admin-login         # 管理员登录
@@ -787,7 +787,7 @@ src/
 ```
 
 **Data Exchange Formats:**
-- JSON 字段：后端 snake_case，前端 camelCase（FastAPI Pydantic `alias` 自动转换）
+- JSON 字段：后端与前端统一使用 snake_case（如 `invite_code`、`parent_id`）。后端 Pydantic 未配置 alias，前端直接以 snake_case 传输，避免转换层不一致
 - 时间：ISO 8601 字符串 `"2026-06-18T16:00:00+08:00"`
 - 金额：字符串（避免浮点精度问题）`"488.40"`
 - 布尔：`true` / `false`

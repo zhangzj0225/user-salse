@@ -16,21 +16,32 @@ export interface LoginParams {
   code: string;
 }
 
+export interface UserInfo {
+  id: number;
+  email: string;
+  role: string;
+  nickname?: string;
+}
+
+/** 后端 send-email-code 响应 body：{ data: { message, code? } } */
+export interface SendCodeResponse {
+  data: {
+    message: string;
+    code?: string;
+  };
+}
+
+/** 后端 login/register 响应 body：{ data: { token, user } } */
 export interface AuthResponse {
   data: {
     token: string;
-    user: {
-      id: number;
-      email: string;
-      role: string;
-      nickname?: string;
-    };
+    user: UserInfo;
   };
 }
 
 export const authApi = {
   sendEmailCode: (params: SendCodeParams) =>
-    request<{ message: string; data?: { code?: string } }>({
+    request<SendCodeResponse>({
       method: "POST",
       url: "/auth/send-email-code",
       data: params,
