@@ -50,9 +50,6 @@ class MockAuthService(AuthService):
         return code
 
     def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
-        if code != self.MOCK_CODE:
-            raise ValueError("Invalid verification code")
-
         record = (
             db.query(EmailVerificationCode)
             .filter(
@@ -66,6 +63,8 @@ class MockAuthService(AuthService):
         )
         if not record:
             raise ValueError("Verification code expired or not found")
+        if code != record.code:
+            raise ValueError("Invalid verification code")
 
         record.verified = True
 
@@ -83,9 +82,6 @@ class MockAuthService(AuthService):
         return user, token
 
     def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
-        if code != self.MOCK_CODE:
-            raise ValueError("Invalid verification code")
-
         record = (
             db.query(EmailVerificationCode)
             .filter(
@@ -99,6 +95,8 @@ class MockAuthService(AuthService):
         )
         if not record:
             raise ValueError("Verification code expired or not found")
+        if code != record.code:
+            raise ValueError("Invalid verification code")
 
         ic = (
             db.query(InviteCode)

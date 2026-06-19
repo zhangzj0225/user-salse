@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.auth import LoginRequest, SendEmailCodeRequest, UserInfo
+from app.schemas.auth import LoginRequest, RegisterRequest, SendEmailCodeRequest, UserInfo
 from app.models.user import User
 
 
@@ -39,9 +39,22 @@ class TestLoginRequest:
         assert req.email == "test@example.com"
         assert req.code == "123456"
 
-    def test_accepts_with_invite_code(self):
-        req = LoginRequest(email="test@example.com", code="123456", invite_code="ABC123")
+    def test_login_request_no_invite_code_field(self):
+        """LoginRequest is cold-start login — invite_code belongs to RegisterRequest."""
+        req = LoginRequest(email="test@example.com", code="123456")
+        assert not hasattr(req, "invite_code") or req.dict().get("invite_code") is None
+
+
+class TestRegisterRequest:
+    def test_accepts_valid_request(self):
+        req = RegisterRequest(email="test@example.com", code="123456", invite_code="ABC123")
+        assert req.email == "test@example.com"
+        assert req.code == "123456"
         assert req.invite_code == "ABC123"
+
+    def test_rejects_missing_invite_code(self):
+        with pytest.raises(ValidationError):
+            RegisterRequest(email="test@example.com", code="123456")
 
     def test_rejects_code_too_short(self):
         with pytest.raises(ValidationError):
