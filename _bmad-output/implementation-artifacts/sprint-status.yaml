@@ -42,7 +42,7 @@ development_status:
   epic-2: in-progress
   2-1-database-model-refactor: done
   2-2-auth-module-refactor: done
-  2-3-frontend-architecture-adjustment: backlog
+  2-3-frontend-architecture-adjustment: done
   2-4-commission-engine-refactor: done
   epic-2-retrospective: optional
 
