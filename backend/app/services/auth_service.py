@@ -90,6 +90,8 @@ class MockAuthService(AuthService):
         return user, token
 
     def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
+        # M1: 邮箱统一小写化，防止大小写绕过自推荐检查和邮箱查重
+        email = email.lower()
         record = _verify_email_code(db, email, "register", code)
 
         # Check if invite code exists at all (distinct from "already used")
@@ -100,7 +102,7 @@ class MockAuthService(AuthService):
         # AC5: 防止自推荐 — 邀请码生成者的邮箱不能与注册邮箱相同
         # 此检查在邮箱查重之前，给出更精确的错误信息
         generator = db.query(User).filter(User.id == ic_exists.generator_id).first()
-        if generator and generator.email == email:
+        if generator and generator.email.lower() == email:
             raise ValueError("不能使用自己的邀请码")
 
         if db.query(User).filter(User.email == email).first():
@@ -124,7 +126,7 @@ class MockAuthService(AuthService):
         # AC7: 自动生成个人邀请码
         personal_code = generate_invite_code(user.id)
         user.invite_code = personal_code
-        personal_ic = InviteCode(code=personal_code, generator_id=user.id)
+        personal_ic = InviteCode(code=personal_code, generator_id=user.id, key_version=1)
         db.add(personal_ic)
 
         ic.used_by = user.id
@@ -133,9 +135,13 @@ class MockAuthService(AuthService):
 
         try:
             db.commit()
-        except IntegrityError:
+        except IntegrityError as e:
             db.rollback()
-            raise ValueError("邮箱已注册")
+            # M2: 区分 email 和 invite_code 约束冲突
+            err_msg = str(e.orig).lower()
+            if "email" in err_msg or "users_email" in err_msg:
+                raise ValueError("邮箱已注册")
+            raise ValueError("邀请码生成冲突，请重试")
 
         token = create_access_token(subject=user.id, role=user.role, token_type="user")
         return user, token

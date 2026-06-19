@@ -128,8 +128,8 @@ class TestMockAuthServiceAuthenticate:
 
 
 class TestMockAuthServiceRegister:
-    def _make_parent(self, db_session) -> User:
-        user = User(email="parent@example.com", role="agent", status="active")
+    def _make_parent(self, db_session, email: str = "parent@example.com") -> User:
+        user = User(email=email, role="agent", status="active")
         db_session.add(user)
         db_session.flush()
         return user
@@ -256,6 +256,17 @@ class TestMockAuthServiceRegister:
         # parent 生成了自己的邀请码
         ic = self._make_invite_code(db_session, parent.id, "PARENTCODE")
         # parent 尝试用自己生成的邀请码注册（用 parent 的邮箱）
+        self._send_register_code(db_session, "parent@example.com")
+
+        service = MockAuthService()
+        with pytest.raises(ValueError, match="不能使用自己的邀请码"):
+            service.register("parent@example.com", "123456", "PARENTCODE", db_session)
+
+    # M1: 邮箱大小写不能绕过自推荐检查
+    def test_register_self_referral_blocked_with_different_case(self, db_session):
+        """大小写变体邮箱不能绕过自推荐检查"""
+        parent = self._make_parent(db_session, email="Parent@Example.com")
+        ic = self._make_invite_code(db_session, parent.id, "PARENTCODE")
         self._send_register_code(db_session, "parent@example.com")
 
         service = MockAuthService()

@@ -8,7 +8,12 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.config import settings
-from app.core.security import create_access_token, decode_access_token, get_current_user
+from app.core.security import (
+    create_access_token,
+    decode_access_token,
+    generate_invite_code,
+    get_current_user,
+)
 from app.models.user import User
 
 
@@ -112,3 +117,57 @@ class TestGetCurrentUser:
         with pytest.raises(HTTPException) as exc:
             get_current_user(credentials=credentials, db=db_session)
         assert exc.value.status_code == 401
+
+
+class TestGenerateInviteCode:
+    """S2: generate_invite_code 直接单元测试"""
+
+    def test_deterministic_same_user_id_same_code(self):
+        """相同 user_id 生成相同邀请码（确定性）"""
+        code1 = generate_invite_code(42)
+        code2 = generate_invite_code(42)
+        assert code1 == code2
+
+    def test_different_user_ids_different_codes(self):
+        """不同 user_id 生成不同邀请码"""
+        code1 = generate_invite_code(1)
+        code2 = generate_invite_code(2)
+        assert code1 != code2
+
+    def test_format_contains_dot_separator(self):
+        """格式: Base62(user_id).HMAC-SHA256[:16]"""
+        code = generate_invite_code(100)
+        assert "." in code
+        parts = code.split(".")
+        assert len(parts) == 2
+        assert len(parts[1]) == 16  # 16 hex chars = 64 bits
+
+    def test_base62_encoding(self):
+        """Base62 编码正确性"""
+        # user_id=0 → "0"
+        code0 = generate_invite_code(0)
+        assert code0.startswith("0.")
+
+        # user_id=62 → "10" (62 in base62)
+        code62 = generate_invite_code(62)
+        assert code62.startswith("10.")
+
+        # user_id=1 → "1"
+        code1 = generate_invite_code(1)
+        assert code1.startswith("1.")
+
+    def test_hmac_signature_verifiable(self):
+        """HMAC 签名可重新计算验证"""
+        import hashlib
+        import hmac as hmac_mod
+
+        user_id = 123
+        code = generate_invite_code(user_id)
+        signature_part = code.split(".")[1]
+
+        # 重新计算签名
+        payload = str(user_id).encode("utf-8")
+        secret = settings.INVITE_CODE_SECRET.encode("utf-8")
+        expected_sig = hmac_mod.new(secret, payload, hashlib.sha256).hexdigest()[:16]
+
+        assert signature_part == expected_sig

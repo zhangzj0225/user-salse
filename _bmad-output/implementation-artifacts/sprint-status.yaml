@@ -47,7 +47,7 @@ development_status:
   epic-2-retrospective: optional
 
   epic-3: in-progress
-  3-1-email-registration-and-invite-relationship: ready-for-dev
+  3-1-email-registration-and-invite-relationship: done
   3-2-invite-code-generation-and-verification: backlog
   3-3-recharge-application-and-review: backlog
   3-4-recharge-first-reward-booking: backlog

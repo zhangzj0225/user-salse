@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
-    INVITE_CODE_SECRET: str = "invite-code-secret-change-me"
+    INVITE_CODE_SECRET: str = "invite-secret-change-me"
 
     model_config = {"env_file": ".env"}
 
