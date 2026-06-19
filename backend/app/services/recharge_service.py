@@ -34,6 +34,13 @@ class RechargeService:
     def __init__(self):
         self._license_service = LicenseService()
 
+    def _get_recharge(self, recharge_id: int, db: Session, *, for_update: bool = False) -> Recharge | None:
+        """查询充值记录，可选行锁。"""
+        query = db.query(Recharge).filter(Recharge.id == recharge_id)
+        if for_update:
+            query = query.with_for_update()
+        return query.first()
+
     def create_recharge(self, user_id: int, amount: int, db: Session) -> Recharge:
         """创建充值申请。"""
         if amount not in VALID_RECHARGE_AMOUNTS:
@@ -56,7 +63,8 @@ class RechargeService:
 
     def approve_recharge(self, recharge_id: int, admin_id: int, db: Session) -> Recharge:
         """批准充值申请。"""
-        recharge = db.query(Recharge).filter(Recharge.id == recharge_id).first()
+        # M2: 行锁防止并发批准
+        recharge = self._get_recharge(recharge_id, db, for_update=True)
         if not recharge:
             raise ValueError("充值记录不存在")
 
@@ -91,6 +99,7 @@ class RechargeService:
         )
 
         # 佣金记账（只 flush 不 commit，由本方法末尾统一 commit）
+        # S3: 异常会回滚整个事务（角色+额度+状态全部回滚），符合"全成功或全失败"语义
         engine = CommissionEngine(db)
         engine.process_recharge(
             recharge_id=recharge.id,
@@ -122,7 +131,8 @@ class RechargeService:
         self, recharge_id: int, admin_id: int, reason: str, db: Session
     ) -> Recharge:
         """拒绝充值申请。"""
-        recharge = db.query(Recharge).filter(Recharge.id == recharge_id).first()
+        # M2: 行锁防止并发拒绝
+        recharge = self._get_recharge(recharge_id, db, for_update=True)
         if not recharge:
             raise ValueError("充值记录不存在")
 

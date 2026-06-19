@@ -38,7 +38,8 @@ class TestCreateRechargeAPI:
             headers={"Authorization": f"Bearer {token}"},
             json={"amount": 100},
         )
-        assert resp.status_code == 400
+        # S1: schema 层 validator 拦截 → 422
+        assert resp.status_code == 422
 
 
 class TestListRechargesAPI:
@@ -120,24 +121,53 @@ class TestAdminRechargeAPI:
         user_token = self._make_user_token(db_session)
 
         # 创建充值
-        client.post(
+        resp1 = client.post(
             "/api/v1/recharges",
             headers={"Authorization": f"Bearer {user_token}"},
             json={"amount": 888},
         )
-        client.post(
+        resp2 = client.post(
             "/api/v1/recharges",
             headers={"Authorization": f"Bearer {user_token}"},
             json={"amount": 5000},
         )
+        recharge1_id = resp1.json()["data"]["id"]
+        recharge2_id = resp2.json()["data"]["id"]
 
-        # 筛选 pending
-        resp = client.get(
+        # 批准第一个充值
+        client.post(
+            f"/api/v1/admin/recharges/{recharge1_id}/approve",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        # 筛选 pending — 只返回第二个
+        resp_pending = client.get(
             "/api/v1/admin/recharges?status=pending",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert resp.status_code == 200
-        assert resp.json()["total"] == 2
+        assert resp_pending.status_code == 200
+        pending_data = resp_pending.json()
+        assert pending_data["total"] == 1
+        assert pending_data["data"][0]["id"] == recharge2_id
+
+        # 筛选 approved — 只返回第一个
+        resp_approved = client.get(
+            "/api/v1/admin/recharges?status=approved",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp_approved.status_code == 200
+        approved_data = resp_approved.json()
+        assert approved_data["total"] == 1
+        assert approved_data["data"][0]["id"] == recharge1_id
+
+    def test_admin_list_invalid_status(self, client, db_session):
+        """S2: 无效状态参数返回 400"""
+        admin_token = self._make_admin_token(db_session)
+        resp = client.get(
+            "/api/v1/admin/recharges?status=foobar",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 400
 
     def test_admin_approve_success(self, client, db_session):
         admin_token = self._make_admin_token(db_session)
