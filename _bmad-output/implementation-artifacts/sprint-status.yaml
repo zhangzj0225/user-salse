@@ -1,5 +1,5 @@
 # generated: 2026-06-11
-# last_updated: 2026-06-18
+# last_updated: 2026-06-19
 # project: user-salse
 # project_key: NOKEY
 # tracking_system: file-system
@@ -43,7 +43,7 @@ development_status:
   2-1-database-model-refactor: done
   2-2-auth-module-refactor: done
   2-3-frontend-architecture-adjustment: backlog
-  2-4-commission-engine-refactor: backlog
+  2-4-commission-engine-refactor: done
   epic-2-retrospective: optional
 
   epic-3: backlog
