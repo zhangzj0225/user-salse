@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     INVITE_CODE_SECRET: str = "invite-secret-change-me"
+    LICENSE_SECRET: str = "license-secret-change-me"
+    LICENSE_API_KEY: str = "license-api-key-change-me"
 
     model_config = {"env_file": ".env"}
 
