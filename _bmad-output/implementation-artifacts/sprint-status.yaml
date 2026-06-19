@@ -25,7 +25,7 @@
 # PRD v2 核心变更：邮箱注册、邀请码统一类型、角色由充值决定、License 对接、场景 A/B 佣金分离
 
 generated: 2026-06-11
-last_updated: 2026-06-18
+last_updated: 2026-06-19
 project: user-salse
 project_key: NOKEY
 tracking_system: file-system
@@ -49,7 +49,7 @@ development_status:
   epic-3: in-progress
   3-1-email-registration-and-invite-relationship: done
   3-2-invite-code-generation-and-verification: done
-  3-3-recharge-application-and-review: backlog
+  3-3-recharge-application-and-review: ready-for-dev
   3-4-recharge-first-reward-booking: backlog
   3-5-quota-management: backlog
   3-6-team-tree-and-upstream-chain: backlog
