@@ -10,6 +10,7 @@ from app.api.v1.admin import router as admin_router
 from app.api.v1.quota import router as quota_router
 from app.api.v1.team import router as team_router
 from app.api.v1.sales import router as sales_router
+from app.api.v1.earnings import router as earnings_router
 from app.core.config import settings
 from app.core.exceptions import global_exception_handler
 from app.core.security import get_current_admin, get_current_user
@@ -41,6 +42,7 @@ app.include_router(admin_router, prefix="/api/v1")
 app.include_router(quota_router, prefix="/api/v1")
 app.include_router(team_router, prefix="/api/v1")
 app.include_router(sales_router, prefix="/api/v1")
+app.include_router(earnings_router, prefix="/api/v1")
 
 
 @app.on_event("startup")
