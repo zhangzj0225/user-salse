@@ -36,6 +36,20 @@ class TestMockAuthServiceSendEmailCode:
         delta = record.expires_at.replace(tzinfo=timezone.utc) - now
         assert timedelta(minutes=4, seconds=30) < delta < timedelta(minutes=5, seconds=30)
 
+    def test_send_register_scene_creates_correct_record(self, db_session):
+        """AC1: send-email-code with scene='register' creates DB record with scene='register'."""
+        service = MockAuthService()
+        code = service.send_email_code("new@example.com", "register", db_session)
+
+        record = db_session.query(EmailVerificationCode).filter(
+            EmailVerificationCode.email == "new@example.com",
+            EmailVerificationCode.scene == "register",
+        ).first()
+        assert record is not None
+        assert record.code == code
+        assert record.scene == "register"
+        assert record.verified is False
+
 
 class TestMockAuthServiceAuthenticate:
     def test_returns_user_and_token_on_valid_code(self, db_session):
@@ -81,12 +95,12 @@ class TestMockAuthServiceAuthenticate:
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
 
-        with pytest.raises(ValueError, match="Invalid verification code"):
+        with pytest.raises(ValueError, match="验证码错误"):
             service.authenticate("test@example.com", "999999", db_session)
 
     def test_raises_value_error_when_no_email_record_exists(self, db_session):
         service = MockAuthService()
-        with pytest.raises(ValueError, match="Verification code expired or not found"):
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
             service.authenticate("test@example.com", "123456", db_session)
 
     def test_raises_value_error_when_email_record_expired(self, db_session):
@@ -100,7 +114,7 @@ class TestMockAuthServiceAuthenticate:
         db_session.add(record)
         db_session.commit()
 
-        with pytest.raises(ValueError, match="Verification code expired or not found"):
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
             service.authenticate("test@example.com", "123456", db_session)
 
     def test_jwt_token_has_correct_type(self, db_session):
@@ -184,7 +198,7 @@ class TestMockAuthServiceRegister:
         self._send_register_code(db_session)
 
         service = MockAuthService()
-        with pytest.raises(ValueError, match="Invalid verification code"):
+        with pytest.raises(ValueError, match="验证码错误"):
             service.register("new@example.com", "999999", ic.code, db_session)
 
     def test_register_raises_on_expired_email_code(self, db_session):
@@ -200,14 +214,14 @@ class TestMockAuthServiceRegister:
         db_session.commit()
 
         service = MockAuthService()
-        with pytest.raises(ValueError, match="Verification code expired or not found"):
+        with pytest.raises(ValueError, match="验证码错误或已过期"):
             service.register("new@example.com", "123456", ic.code, db_session)
 
     def test_register_raises_on_invalid_invite_code(self, db_session):
         self._send_register_code(db_session)
 
         service = MockAuthService()
-        with pytest.raises(ValueError, match="Invalid or already used invite code"):
+        with pytest.raises(ValueError, match="邀请码无效"):
             service.register("new@example.com", "123456", "NONEXISTENT", db_session)
 
     def test_register_raises_on_already_used_invite_code(self, db_session):
@@ -218,7 +232,7 @@ class TestMockAuthServiceRegister:
         self._send_register_code(db_session)
 
         service = MockAuthService()
-        with pytest.raises(ValueError, match="Invalid or already used invite code"):
+        with pytest.raises(ValueError, match="邀请码已被使用"):
             service.register("new@example.com", "123456", ic.code, db_session)
 
     def test_register_raises_on_duplicate_email(self, db_session):
@@ -228,7 +242,7 @@ class TestMockAuthServiceRegister:
         self._send_register_code(db_session, "parent@example.com")
 
         service = MockAuthService()
-        with pytest.raises(ValueError, match="Email already registered"):
+        with pytest.raises(ValueError, match="邮箱已注册"):
             service.register("parent@example.com", "123456", ic.code, db_session)
 
 

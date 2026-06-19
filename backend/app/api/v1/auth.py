@@ -40,7 +40,9 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     auth_service = get_auth_service()
     try:
         user, token = auth_service.authenticate(request.email, request.code, db)
+        logger.info("Login successful: user_id=%d email=%s", user.id, user.email)
     except ValueError as e:
+        logger.warning("Login failed: email=%s reason=%s", request.email, str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="Auth service not available")
@@ -59,7 +61,12 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     auth_service = get_auth_service()
     try:
         user, token = auth_service.register(request.email, request.code, request.invite_code, db)
+        logger.info(
+            "Register successful: user_id=%d email=%s invite_code=%s",
+            user.id, user.email, request.invite_code,
+        )
     except ValueError as e:
+        logger.warning("Register failed: email=%s reason=%s", request.email, str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="Auth service not available")

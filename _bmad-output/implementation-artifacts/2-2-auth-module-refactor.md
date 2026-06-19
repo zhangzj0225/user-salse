@@ -3,7 +3,7 @@ story_id: "2.2"
 story_key: "2-2-auth-module-refactor"
 epic: "2"
 title: "认证模块重构"
-status: "ready-for-dev"
+status: "done"
 created: "2026-06-18"
 ---
 

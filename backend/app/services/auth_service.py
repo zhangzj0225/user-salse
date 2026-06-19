@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -13,6 +14,28 @@ from app.models.user import User
 
 # Dummy bcrypt hash of "dummy" for constant-time comparison when user not found
 _DUMMY_HASH = "$2b$12$LJ3m4ys3GZfnYMz8kVsKaekyOsqAVtG2X7VOq8MS3DU8N7rthnfKa"
+
+
+def _verify_email_code(
+    db: Session, email: str, scene: str, code: str
+) -> EmailVerificationCode:
+    """Verify email verification code from DB. Returns the record if valid, raises ValueError otherwise."""
+    record = (
+        db.query(EmailVerificationCode)
+        .filter(
+            EmailVerificationCode.email == email,
+            EmailVerificationCode.scene == scene,
+            EmailVerificationCode.verified == False,
+            EmailVerificationCode.expires_at > datetime.now(timezone.utc),
+        )
+        .order_by(EmailVerificationCode.created_at.desc())
+        .first()
+    )
+    if not record:
+        raise ValueError("验证码错误或已过期")
+    if code != record.code:
+        raise ValueError("验证码错误")
+    return record
 
 
 class AuthService(ABC):
@@ -50,22 +73,7 @@ class MockAuthService(AuthService):
         return code
 
     def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
-        record = (
-            db.query(EmailVerificationCode)
-            .filter(
-                EmailVerificationCode.email == email,
-                EmailVerificationCode.scene == "login",
-                EmailVerificationCode.verified == False,
-                EmailVerificationCode.expires_at > datetime.now(timezone.utc),
-            )
-            .order_by(EmailVerificationCode.created_at.desc())
-            .first()
-        )
-        if not record:
-            raise ValueError("Verification code expired or not found")
-        if code != record.code:
-            raise ValueError("Invalid verification code")
-
+        record = _verify_email_code(db, email, "login", code)
         record.verified = True
 
         # Cold-start / admin seeding: create user without invite code (no parent_id).
@@ -82,32 +90,25 @@ class MockAuthService(AuthService):
         return user, token
 
     def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
-        record = (
-            db.query(EmailVerificationCode)
-            .filter(
-                EmailVerificationCode.email == email,
-                EmailVerificationCode.scene == "register",
-                EmailVerificationCode.verified == False,
-                EmailVerificationCode.expires_at > datetime.now(timezone.utc),
-            )
-            .order_by(EmailVerificationCode.created_at.desc())
-            .first()
-        )
-        if not record:
-            raise ValueError("Verification code expired or not found")
-        if code != record.code:
-            raise ValueError("Invalid verification code")
+        record = _verify_email_code(db, email, "register", code)
 
+        if db.query(User).filter(User.email == email).first():
+            raise ValueError("邮箱已注册")
+
+        # Check if invite code exists at all (distinct from "already used")
+        ic_exists = db.query(InviteCode).filter(InviteCode.code == invite_code).first()
+        if not ic_exists:
+            raise ValueError("邀请码无效")
+
+        # Lock the row for update to prevent TOCTOU race
         ic = (
             db.query(InviteCode)
             .filter(InviteCode.code == invite_code, InviteCode.used_by == None)
+            .with_for_update()
             .first()
         )
         if not ic:
-            raise ValueError("Invalid or already used invite code")
-
-        if db.query(User).filter(User.email == email).first():
-            raise ValueError("Email already registered")
+            raise ValueError("邀请码已被使用")
 
         now = datetime.now(timezone.utc)
         user = User(email=email, role="user", status="active", parent_id=ic.generator_id)
@@ -118,7 +119,11 @@ class MockAuthService(AuthService):
         ic.used_at = now
         record.verified = True
 
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ValueError("邮箱已注册")
 
         token = create_access_token(subject=user.id, role=user.role, token_type="user")
         return user, token
