@@ -27,7 +27,10 @@ def generate_invite_code_endpoint(
     service: InviteCodeService = Depends(get_invite_code_service),
 ):
     """生成新的邀请码。用户可生成多个未使用的邀请码。"""
-    ic = service.generate_for_user(current_user.id, db)
+    try:
+        ic = service.generate_for_user(current_user.id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     logger.info(
         "Invite code generated via API: user_id=%d code=%s",
         current_user.id, ic.code,
@@ -54,10 +57,12 @@ def list_invite_codes_endpoint(
 def verify_invite_code_endpoint(
     request: VerifyInviteCodeRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
     service: InviteCodeService = Depends(get_invite_code_service),
 ):
-    """验证邀请码：签名校验 + 数据库查找。"""
+    """验证邀请码：签名校验 + 数据库查找。
+
+    S4: 公开接口，无需认证（注册前需验证邀请码）。
+    """
     result = service.verify_code(request.code, db)
     response = VerifyInviteCodeResponse(**result)
     return {"data": response.model_dump()}

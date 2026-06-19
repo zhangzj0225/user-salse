@@ -1,6 +1,6 @@
 """Tests for invite code API endpoints。"""
 
-from app.core.security import create_access_token
+from app.core.security import create_access_token, generate_invite_code
 from app.models.user import User
 
 
@@ -89,12 +89,15 @@ class TestListInviteCodesAPI:
 
 
 class TestVerifyInviteCodeAPI:
-    def test_verify_requires_auth(self, client):
+    """S4: verify 端点公开，无需认证。"""
+
+    def test_verify_no_auth_required(self, client, db_session):
+        """验证端点不需要认证"""
         resp = client.post(
             "/api/v1/invite-codes/verify",
-            json={"code": "somecode"},
+            json={"code": "no-dot-here"},
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     def test_verify_valid_code(self, client, db_session):
         user = User(email="verify@example.com", role="user", status="active")
@@ -109,10 +112,9 @@ class TestVerifyInviteCodeAPI:
         )
         code = gen_resp.json()["data"]["code"]
 
-        # 验证
+        # 验证 — 无需认证
         resp = client.post(
             "/api/v1/invite-codes/verify",
-            headers={"Authorization": f"Bearer {token}"},
             json={"code": code},
         )
         assert resp.status_code == 200
@@ -121,15 +123,9 @@ class TestVerifyInviteCodeAPI:
         assert data["generator_id"] == user.id
         assert data["used"] is False
 
-    def test_verify_invalid_format(self, client, db_session):
-        user = User(email="invalid@example.com", role="user", status="active")
-        db_session.add(user)
-        db_session.commit()
-
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+    def test_verify_invalid_format(self, client):
         resp = client.post(
             "/api/v1/invite-codes/verify",
-            headers={"Authorization": f"Bearer {token}"},
             json={"code": "no-dot-here"},
         )
         assert resp.status_code == 200
@@ -137,16 +133,12 @@ class TestVerifyInviteCodeAPI:
         assert data["valid"] is False
         assert data["generator_id"] is None
 
-    def test_verify_nonexistent_code(self, client, db_session):
-        user = User(email="nonexist@example.com", role="user", status="active")
-        db_session.add(user)
-        db_session.commit()
-
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+    def test_verify_nonexistent_code(self, client):
+        """S5: 使用 3 段式格式生成有效签名但不在数据库中"""
+        code = generate_invite_code(999)
         resp = client.post(
             "/api/v1/invite-codes/verify",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"code": "99.abcdef0123456789"},
+            json={"code": code},
         )
         assert resp.status_code == 200
         data = resp.json()["data"]

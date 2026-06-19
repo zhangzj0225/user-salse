@@ -3,14 +3,13 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class InviteCodeInfo(BaseModel):
     id: int
     code: str
     generator_id: int
-    key_version: int
     used_by: Optional[int] = None
     used_at: Optional[datetime] = None
     created_at: datetime
@@ -19,7 +18,7 @@ class InviteCodeInfo(BaseModel):
 
 
 class VerifyInviteCodeRequest(BaseModel):
-    code: str
+    code: str = Field(..., min_length=1, max_length=128)
 
 
 class VerifyInviteCodeResponse(BaseModel):

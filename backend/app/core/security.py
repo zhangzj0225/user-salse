@@ -35,7 +35,10 @@ def _base62_decode(s: str) -> int:
     """将 Base62 字符串解码为整数。"""
     result = 0
     for c in s:
-        result = result * 62 + _BASE62_CHARS.index(c)
+        idx = _BASE62_CHARS.find(c)
+        if idx == -1:
+            raise ValueError(f"Invalid Base62 character: {c!r}")
+        result = result * 62 + idx
     return result
 
 

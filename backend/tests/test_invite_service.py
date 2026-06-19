@@ -36,6 +36,22 @@ class TestGenerateForUser:
         assert ic1.code != ic2.code
         assert ic1.generator_id == ic2.generator_id == user.id
 
+    def test_generate_limits_unused_codes(self, db_session):
+        """S2: 超过 10 个未使用邀请码时拒绝生成"""
+        user = User(email="limit@example.com", role="user", status="active")
+        db_session.add(user)
+        db_session.flush()
+
+        service = InviteCodeService()
+        # 生成 10 个（上限）
+        for _ in range(10):
+            service.generate_for_user(user.id, db_session)
+
+        # 第 11 个应被拒绝
+        import pytest
+        with pytest.raises(ValueError, match="已达上限"):
+            service.generate_for_user(user.id, db_session)
+
 
 class TestListUserCodes:
     def test_returns_all_codes_for_user(self, db_session):
