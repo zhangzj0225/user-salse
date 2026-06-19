@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -6,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 # CRITICAL: Import models FIRST so they register with Base.metadata
 import app.models  # noqa: F401 — imports all models via __init__.py
 from app.core.database import Base
+from app.models.commission_config import CommissionConfig
 
 
 @pytest.fixture(scope="session")
@@ -60,3 +62,33 @@ def client(db_session, monkeypatch):
         yield c
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def seed_commission_configs(db_session):
+    """插入 11 条佣金配置种子数据（与 migration 004 一致）。
+
+    ⚠️ 此 fixture 验证的是"手动插入的数据"而非 migration 文件本身。
+    如果 migration 004 被修改但此处未同步，测试可能无法捕获差异。
+    修改 migration 时请同步更新此 fixture。
+    """
+    configs = [
+        # agent (代理) — 5 条
+        CommissionConfig(role="agent", scene="recharge_888", reward_type="fixed", reward_value=Decimal("488.40")),
+        CommissionConfig(role="agent", scene="recharge_5000", reward_type="fixed", reward_value=Decimal("2750.00")),
+        CommissionConfig(role="agent", scene="recharge_10000", reward_type="fixed", reward_value=Decimal("5500.00")),
+        CommissionConfig(role="agent", scene="followup_reward", reward_type="fixed", reward_value=Decimal("133.20")),
+        CommissionConfig(role="agent", scene="team_bonus", reward_type="percentage", reward_value=Decimal("0.05")),
+        # distributor (经销商) — 4 条
+        CommissionConfig(role="distributor", scene="recharge_888", reward_type="fixed", reward_value=Decimal("355.20")),
+        CommissionConfig(role="distributor", scene="recharge_5000", reward_type="fixed", reward_value=Decimal("2000.00")),
+        CommissionConfig(role="distributor", scene="recharge_10000", reward_type="fixed", reward_value=Decimal("4000.00")),
+        CommissionConfig(role="distributor", scene="team_bonus", reward_type="percentage", reward_value=Decimal("0.04")),
+        # member (888会员) — 1 条
+        CommissionConfig(role="member", scene="recharge_888", reward_type="fixed", reward_value=Decimal("177.60")),
+        # user (普通用户) — 1 条
+        CommissionConfig(role="user", scene="recharge_888", reward_type="fixed", reward_value=Decimal("177.60")),
+    ]
+    db_session.add_all(configs)
+    db_session.flush()
+    return configs
