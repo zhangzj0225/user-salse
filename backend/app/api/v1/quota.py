@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
+from app.schemas.quota import QuotaInfo
 from app.services.quota_service import QuotaService, get_quota_service
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/quota", tags=["quota"])
 
 
-@router.get("", response_model=dict)
+@router.get("", response_model=QuotaInfo)
 def get_quota_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -33,4 +34,4 @@ def get_quota_endpoint(
         )
 
     info = service.get_quota_info(current_user.id, db)
-    return {"data": info}
+    return info

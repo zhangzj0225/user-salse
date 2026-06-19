@@ -21,11 +21,13 @@ class TestQuotaAPI:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
-        data = resp.json()["data"]
+        data = resp.json()
         assert data["role"] == "agent"
         assert data["account_quota"] == 22
         assert data["account_used"] == 5
         assert data["remaining"] == 17
+        assert data["can_replenish"] is False
+        assert data["sales_records"] == []
 
     def test_get_quota_distributor_success(self, client, db_session):
         user = User(email="dist@example.com", role="distributor", status="active",
@@ -39,7 +41,7 @@ class TestQuotaAPI:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
-        assert resp.json()["data"]["remaining"] == 8
+        assert resp.json()["remaining"] == 8
 
     def test_get_quota_user_forbidden(self, client, db_session):
         """普通用户 → 403"""
@@ -80,6 +82,6 @@ class TestQuotaAPI:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
-        data = resp.json()["data"]
+        data = resp.json()
         assert data["remaining"] == 0
         assert data["can_replenish"] is True

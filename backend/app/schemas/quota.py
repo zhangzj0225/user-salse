@@ -1,6 +1,5 @@
 """额度相关 Pydantic schemas。"""
 
-from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -10,7 +9,7 @@ class SalesRecord(BaseModel):
     recharge_id: int
     child_email: str
     amount: str
-    target_role: str
+    target_role: Optional[str] = None
     approved_at: Optional[str] = None
 
 
@@ -19,4 +18,5 @@ class QuotaInfo(BaseModel):
     account_quota: int
     account_used: int
     remaining: int
+    can_replenish: bool
     sales_records: list[SalesRecord]
