@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.security import create_access_token
 from app.models.admin_user import AdminUser
 from app.models.email_verification_code import EmailVerificationCode
+from app.models.invite_code import InviteCode
 from app.models.user import User
 
 # Dummy bcrypt hash of "dummy" for constant-time comparison when user not found
@@ -20,9 +21,16 @@ class AuthService(ABC):
         ...
 
     @abstractmethod
-    def authenticate(
-        self, email: str, code: str, invite_code: str | None, db: Session
-    ) -> tuple[User, str]:
+    def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
+        """Login flow: find-or-create user without invite code (cold-start / admin seeding).
+        Intentional design: allows creating root-level users with no parent_id,
+        used for admin-seeded first-batch users before viral distribution begins.
+        """
+        ...
+
+    @abstractmethod
+    def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
+        """Registration flow: invite code required, establishes parent_id for distribution tree."""
         ...
 
 
@@ -41,14 +49,10 @@ class MockAuthService(AuthService):
         db.commit()
         return code
 
-    def authenticate(
-        self, email: str, code: str, invite_code: str | None, db: Session
-    ) -> tuple[User, str]:
-        # Verify email code
+    def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
         if code != self.MOCK_CODE:
             raise ValueError("Invalid verification code")
 
-        # Check latest unverified email code
         record = (
             db.query(EmailVerificationCode)
             .filter(
@@ -65,26 +69,60 @@ class MockAuthService(AuthService):
 
         record.verified = True
 
-        # Find or create user
-        # Note: invite_code will be processed in Story 3.1 (user registration flow)
+        # Cold-start / admin seeding: create user without invite code (no parent_id).
+        # Normal users enter via /register which requires an invite code.
         user = db.query(User).filter(User.email == email).first()
         if not user:
-            user = User(
-                email=email,
-                role="user",
-                status="active",
-            )
+            user = User(email=email, role="user", status="active")
             db.add(user)
             db.flush()
 
         db.commit()
 
-        # Issue JWT
-        token = create_access_token(
-            subject=user.id,
-            role=user.role,
-            token_type="user",
+        token = create_access_token(subject=user.id, role=user.role, token_type="user")
+        return user, token
+
+    def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
+        if code != self.MOCK_CODE:
+            raise ValueError("Invalid verification code")
+
+        record = (
+            db.query(EmailVerificationCode)
+            .filter(
+                EmailVerificationCode.email == email,
+                EmailVerificationCode.scene == "register",
+                EmailVerificationCode.verified == False,
+                EmailVerificationCode.expires_at > datetime.now(timezone.utc),
+            )
+            .order_by(EmailVerificationCode.created_at.desc())
+            .first()
         )
+        if not record:
+            raise ValueError("Verification code expired or not found")
+
+        ic = (
+            db.query(InviteCode)
+            .filter(InviteCode.code == invite_code, InviteCode.used_by == None)
+            .first()
+        )
+        if not ic:
+            raise ValueError("Invalid or already used invite code")
+
+        if db.query(User).filter(User.email == email).first():
+            raise ValueError("Email already registered")
+
+        now = datetime.now(timezone.utc)
+        user = User(email=email, role="user", status="active", parent_id=ic.generator_id)
+        db.add(user)
+        db.flush()
+
+        ic.used_by = user.id
+        ic.used_at = now
+        record.verified = True
+
+        db.commit()
+
+        token = create_access_token(subject=user.id, role=user.role, token_type="user")
         return user, token
 
 
@@ -92,9 +130,10 @@ class EmailAuthService(AuthService):
     def send_email_code(self, email: str, scene: str, db: Session) -> str:
         raise NotImplementedError("Email auth not implemented yet")
 
-    def authenticate(
-        self, email: str, code: str, invite_code: str | None, db: Session
-    ) -> tuple[User, str]:
+    def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
+        raise NotImplementedError("Email auth not implemented yet")
+
+    def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
         raise NotImplementedError("Email auth not implemented yet")
 
 

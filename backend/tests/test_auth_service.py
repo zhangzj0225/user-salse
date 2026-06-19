@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.models.email_verification_code import EmailVerificationCode
+from app.models.invite_code import InviteCode
 from app.models.user import User
 from app.services.auth_service import MockAuthService, EmailAuthService, get_auth_service
 
@@ -41,7 +42,7 @@ class TestMockAuthServiceAuthenticate:
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
 
-        user, token = service.authenticate("test@example.com", "123456", None, db_session)
+        user, token = service.authenticate("test@example.com", "123456", db_session)
         assert isinstance(user, User)
         assert user.email == "test@example.com"
         assert isinstance(token, str)
@@ -51,25 +52,26 @@ class TestMockAuthServiceAuthenticate:
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
 
-        user, _ = service.authenticate("test@example.com", "123456", None, db_session)
+        user, _ = service.authenticate("test@example.com", "123456", db_session)
         assert user.email == "test@example.com"
         assert user.role == "user"
         assert user.status == "active"
+        assert user.parent_id is None  # cold-start: no parent
 
     def test_returns_existing_user_on_second_login(self, db_session):
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
-        first_user, _ = service.authenticate("test@example.com", "123456", None, db_session)
+        first_user, _ = service.authenticate("test@example.com", "123456", db_session)
 
         service.send_email_code("test@example.com", "login", db_session)
-        second_user, _ = service.authenticate("test@example.com", "123456", None, db_session)
+        second_user, _ = service.authenticate("test@example.com", "123456", db_session)
         assert second_user.id == first_user.id
 
     def test_marks_email_record_verified(self, db_session):
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
 
-        service.authenticate("test@example.com", "123456", None, db_session)
+        service.authenticate("test@example.com", "123456", db_session)
         record = db_session.query(EmailVerificationCode).filter(
             EmailVerificationCode.email == "test@example.com"
         ).first()
@@ -80,12 +82,12 @@ class TestMockAuthServiceAuthenticate:
         service.send_email_code("test@example.com", "login", db_session)
 
         with pytest.raises(ValueError, match="Invalid verification code"):
-            service.authenticate("test@example.com", "999999", None, db_session)
+            service.authenticate("test@example.com", "999999", db_session)
 
     def test_raises_value_error_when_no_email_record_exists(self, db_session):
         service = MockAuthService()
         with pytest.raises(ValueError, match="Verification code expired or not found"):
-            service.authenticate("test@example.com", "123456", None, db_session)
+            service.authenticate("test@example.com", "123456", db_session)
 
     def test_raises_value_error_when_email_record_expired(self, db_session):
         service = MockAuthService()
@@ -99,16 +101,135 @@ class TestMockAuthServiceAuthenticate:
         db_session.commit()
 
         with pytest.raises(ValueError, match="Verification code expired or not found"):
-            service.authenticate("test@example.com", "123456", None, db_session)
+            service.authenticate("test@example.com", "123456", db_session)
 
     def test_jwt_token_has_correct_type(self, db_session):
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
-        _, token = service.authenticate("test@example.com", "123456", None, db_session)
+        _, token = service.authenticate("test@example.com", "123456", db_session)
 
         from app.core.security import decode_access_token
         payload = decode_access_token(token)
         assert payload["type"] == "user"
+
+
+class TestMockAuthServiceRegister:
+    def _make_parent(self, db_session) -> User:
+        user = User(email="parent@example.com", role="agent", status="active")
+        db_session.add(user)
+        db_session.flush()
+        return user
+
+    def _make_invite_code(self, db_session, generator_id: int, code: str = "INVCODE01") -> InviteCode:
+        ic = InviteCode(code=code, generator_id=generator_id)
+        db_session.add(ic)
+        db_session.flush()
+        return ic
+
+    def _send_register_code(self, db_session, email: str = "new@example.com") -> None:
+        service = MockAuthService()
+        service.send_email_code(email, "register", db_session)
+
+    def test_register_creates_user_with_parent_id(self, db_session):
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        user, _ = service.register("new@example.com", "123456", ic.code, db_session)
+        assert user.parent_id == parent.id
+
+    def test_register_returns_user_and_token(self, db_session):
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        user, token = service.register("new@example.com", "123456", ic.code, db_session)
+        assert isinstance(user, User)
+        assert user.email == "new@example.com"
+        assert user.role == "user"
+        assert user.status == "active"
+        assert isinstance(token, str) and len(token) > 0
+
+    def test_register_marks_email_code_verified(self, db_session):
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        service.register("new@example.com", "123456", ic.code, db_session)
+
+        record = db_session.query(EmailVerificationCode).filter(
+            EmailVerificationCode.email == "new@example.com",
+            EmailVerificationCode.scene == "register",
+        ).first()
+        assert record.verified is True
+
+    def test_register_marks_invite_code_used(self, db_session):
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        user, _ = service.register("new@example.com", "123456", ic.code, db_session)
+
+        db_session.refresh(ic)
+        assert ic.used_by == user.id
+        assert ic.used_at is not None
+
+    def test_register_raises_on_wrong_code(self, db_session):
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        with pytest.raises(ValueError, match="Invalid verification code"):
+            service.register("new@example.com", "999999", ic.code, db_session)
+
+    def test_register_raises_on_expired_email_code(self, db_session):
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        expired = EmailVerificationCode(
+            email="new@example.com",
+            code="123456",
+            scene="register",
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+        db_session.add(expired)
+        db_session.commit()
+
+        service = MockAuthService()
+        with pytest.raises(ValueError, match="Verification code expired or not found"):
+            service.register("new@example.com", "123456", ic.code, db_session)
+
+    def test_register_raises_on_invalid_invite_code(self, db_session):
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        with pytest.raises(ValueError, match="Invalid or already used invite code"):
+            service.register("new@example.com", "123456", "NONEXISTENT", db_session)
+
+    def test_register_raises_on_already_used_invite_code(self, db_session):
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        ic.used_by = parent.id  # mark as already used
+        db_session.flush()
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        with pytest.raises(ValueError, match="Invalid or already used invite code"):
+            service.register("new@example.com", "123456", ic.code, db_session)
+
+    def test_register_raises_on_duplicate_email(self, db_session):
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        # parent's email is already taken
+        self._send_register_code(db_session, "parent@example.com")
+
+        service = MockAuthService()
+        with pytest.raises(ValueError, match="Email already registered"):
+            service.register("parent@example.com", "123456", ic.code, db_session)
 
 
 class TestEmailAuthService:
@@ -120,7 +241,12 @@ class TestEmailAuthService:
     def test_authenticate_raises_not_implemented(self, db_session):
         service = EmailAuthService()
         with pytest.raises(NotImplementedError):
-            service.authenticate("test@example.com", "123456", None, db_session)
+            service.authenticate("test@example.com", "123456", db_session)
+
+    def test_register_raises_not_implemented(self, db_session):
+        service = EmailAuthService()
+        with pytest.raises(NotImplementedError):
+            service.register("test@example.com", "123456", "CODE", db_session)
 
 
 class TestGetAuthService:

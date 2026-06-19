@@ -29,5 +29,6 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    children = relationship("User", back_populates="parent", remote_side=[parent_id])
-    parent = relationship("User", back_populates="children", remote_side=[id])
+    # remote_side=[id] on parent side: "my parent_id points to the other row's id"
+    parent = relationship("User", back_populates="children", remote_side=[id], foreign_keys=[parent_id])
+    children = relationship("User", back_populates="parent", foreign_keys=[parent_id])

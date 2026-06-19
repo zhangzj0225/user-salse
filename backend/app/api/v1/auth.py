@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.schemas.auth import AdminInfo, LoginRequest, SendEmailCodeRequest, UserInfo
+from app.schemas.auth import AdminInfo, LoginRequest, RegisterRequest, SendEmailCodeRequest, UserInfo
 from app.services.auth_service import AdminAuthService, get_auth_service
 
 logger = logging.getLogger(__name__)
@@ -34,11 +34,31 @@ def send_email_code(request: SendEmailCodeRequest, db: Session = Depends(get_db)
 
 @router.post("/login", response_model=dict)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
+    """Cold-start / admin seeding login. Creates root-level user with no parent_id.
+    Normal user entry is via /register (invite code required).
+    """
     auth_service = get_auth_service()
     try:
-        user, token = auth_service.authenticate(
-            request.email, request.code, request.invite_code, db
-        )
+        user, token = auth_service.authenticate(request.email, request.code, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Auth service not available")
+
+    return {
+        "data": {
+            "token": token,
+            "user": UserInfo.model_validate(user).model_dump(),
+        }
+    }
+
+
+@router.post("/register", response_model=dict)
+def register(request: RegisterRequest, db: Session = Depends(get_db)):
+    """Normal user registration. Invite code required — establishes parent_id in distribution tree."""
+    auth_service = get_auth_service()
+    try:
+        user, token = auth_service.register(request.email, request.code, request.invite_code, db)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except NotImplementedError:

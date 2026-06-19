@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -11,7 +12,13 @@ from app.core.database import get_db
 from app.models.admin_user import AdminUser
 from app.models.user import User
 
-security_scheme = HTTPBearer()
+security_scheme = HTTPBearer(auto_error=False)
+
+_NO_CREDENTIALS = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Not authenticated",
+    headers={"WWW-Authenticate": "Bearer"},
+)
 
 
 def create_access_token(subject: int, role: str, token_type: str) -> str:
@@ -40,15 +47,23 @@ def decode_access_token(token: str) -> dict:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     db: Session = Depends(get_db),
 ) -> User:
+    if not credentials:
+        raise _NO_CREDENTIALS
     try:
         payload = decode_access_token(credentials.credentials)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
+        )
+
+    if payload.get("type") != "user":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User token required",
         )
 
     try:
@@ -69,9 +84,11 @@ def get_current_user(
 
 
 def get_current_admin(
-    credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     db: Session = Depends(get_db),
 ) -> AdminUser:
+    if not credentials:
+        raise _NO_CREDENTIALS
     try:
         payload = decode_access_token(credentials.credentials)
     except ValueError:

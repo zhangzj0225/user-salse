@@ -11,7 +11,12 @@ class SendEmailCodeRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
-    invite_code: Optional[str] = None
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+    invite_code: str = Field(..., min_length=1, max_length=64)
 
 
 class UserInfo(BaseModel):
