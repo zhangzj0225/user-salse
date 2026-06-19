@@ -26,12 +26,12 @@ class TestTeamAPI:
         assert data["root"]["children"] == []
 
     def test_team_with_downline(self, client, db_session):
-        agent = User(email="agent@example.com", role="agent", status="active")
+        agent = User(email="agent@example.com", role="agent", status="active", nickname="Agent王")
         db_session.add(agent)
         db_session.commit()
 
-        c1 = User(email="c1@example.com", role="user", status="active", parent_id=agent.id)
-        c2 = User(email="c2@example.com", role="user", status="active", parent_id=agent.id)
+        c1 = User(email="c1@example.com", role="user", status="active", parent_id=agent.id, nickname="小C1")
+        c2 = User(email="c2@example.com", role="user", status="active", parent_id=agent.id, nickname="小C2")
         db_session.add_all([c1, c2])
         db_session.commit()
 
@@ -44,6 +44,16 @@ class TestTeamAPI:
         data = resp.json()
         assert data["total_count"] == 2
         assert len(data["root"]["children"]) == 2
+
+        # S5: 验证子节点字段
+        child = data["root"]["children"][0]
+        assert child["nickname"] == "小C1"
+        assert child["role"] == "user"
+        assert "created_at" in child
+        assert child["direct_downline_count"] == 0
+        assert child["children"] == []
+        # M2: 不应返回 email
+        assert "email" not in child
 
 
 class TestUpstreamAPI:
@@ -65,7 +75,7 @@ class TestUpstreamAPI:
         assert resp.json()["chain"] == []
 
     def test_upstream_with_parent(self, client, db_session):
-        agent = User(email="agent@example.com", role="agent", status="active")
+        agent = User(email="agent@example.com", role="agent", status="active", nickname="Agent王")
         db_session.add(agent)
         db_session.commit()
 
@@ -83,3 +93,6 @@ class TestUpstreamAPI:
         assert len(chain) == 1
         assert chain[0]["user_id"] == agent.id
         assert chain[0]["level"] == 1
+        assert chain[0]["nickname"] == "Agent王"
+        # M2: 不应返回 email
+        assert "email" not in chain[0]

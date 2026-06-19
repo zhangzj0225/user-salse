@@ -3,24 +3,22 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TeamNode(BaseModel):
     """下级树节点。"""
     user_id: int
-    email: str
     nickname: Optional[str] = None
     role: str
     created_at: datetime
     direct_downline_count: int
-    children: list["TeamNode"] = []
+    children: list["TeamNode"] = Field(default_factory=list)
 
 
 class UpstreamNode(BaseModel):
     """上级链节点。"""
     user_id: int
-    email: str
     nickname: Optional[str] = None
     role: str
     level: int  # 距当前用户的层级（1=直接上级）

@@ -6,8 +6,8 @@ from app.models.user import User
 from app.services.team_service import TeamService
 
 
-def _make_user(db, email, role="user", parent_id=None):
-    u = User(email=email, role=role, status="active", parent_id=parent_id)
+def _make_user(db, email, role="user", parent_id=None, nickname=None):
+    u = User(email=email, role=role, status="active", parent_id=parent_id, nickname=nickname)
     db.add(u)
     db.flush()
     return u
@@ -56,29 +56,53 @@ class TestGetTeamTree:
         assert dist_node["direct_downline_count"] == 1
         assert dist_node["children"][0]["user_id"] == child.id
 
+        # N2: 验证 d 节点也存在
+        d_node = next(c for c in result["root"]["children"] if c["user_id"] == d.id)
+        assert d_node["direct_downline_count"] == 0
+
     def test_nonexistent_user(self, db_session):
         service = TeamService()
         with pytest.raises(ValueError, match="不存在"):
             service.get_team_tree(9999, db_session)
 
-    def test_node_fields(self, db_session):
-        """验证节点包含所有必要字段"""
-        agent = _make_user(db_session, "agent@example.com", "agent")
-        child = _make_user(db_session, "child@example.com", parent_id=agent.id)
+    def test_node_fields_no_email(self, db_session):
+        """验证节点包含所有必要字段且不含 email（PRD 隐私要求）"""
+        agent = _make_user(db_session, "agent@example.com", "agent", nickname="Agent王")
+        child = _make_user(db_session, "child@example.com", parent_id=agent.id, nickname="小C")
 
         service = TeamService()
         result = service.get_team_tree(agent.id, db_session)
 
         child_node = result["root"]["children"][0]
         assert "user_id" in child_node
-        assert "email" in child_node
         assert "nickname" in child_node
         assert "role" in child_node
         assert "created_at" in child_node
         assert "direct_downline_count" in child_node
         assert "children" in child_node
-        assert child_node["email"] == "child@example.com"
+        # M2: 不应包含 email 字段
+        assert "email" not in child_node
+        assert child_node["nickname"] == "小C"
         assert child_node["role"] == "user"
+
+    def test_total_count_consistent_with_tree(self, db_session):
+        """M1: total_count 与树中实际节点数一致"""
+        agent = _make_user(db_session, "agent@example.com", "agent")
+        dist = _make_user(db_session, "dist@example.com", "distributor", parent_id=agent.id)
+        _make_user(db_session, "c1@example.com", parent_id=dist.id)
+        _make_user(db_session, "c2@example.com", parent_id=dist.id)
+        _make_user(db_session, "c3@example.com", parent_id=agent.id)
+
+        service = TeamService()
+        result = service.get_team_tree(agent.id, db_session)
+
+        # 递归计数节点
+        def count_nodes(node):
+            return 1 + sum(count_nodes(c) for c in node["children"])
+
+        tree_count = count_nodes(result["root"]) - 1  # 减去 root 自身
+        assert result["total_count"] == tree_count
+        assert result["total_count"] == 4
 
 
 class TestGetUpstreamChain:
@@ -92,7 +116,7 @@ class TestGetUpstreamChain:
 
     def test_single_level(self, db_session):
         """单级上级"""
-        agent = _make_user(db_session, "agent@example.com", "agent")
+        agent = _make_user(db_session, "agent@example.com", "agent", nickname="Agent王")
         child = _make_user(db_session, "child@example.com", parent_id=agent.id)
 
         service = TeamService()
@@ -102,6 +126,7 @@ class TestGetUpstreamChain:
         assert result["chain"][0]["user_id"] == agent.id
         assert result["chain"][0]["level"] == 1
         assert result["chain"][0]["role"] == "agent"
+        assert result["chain"][0]["nickname"] == "Agent王"
 
     def test_multi_level(self, db_session):
         """多级上级: C → B → A"""
@@ -123,8 +148,8 @@ class TestGetUpstreamChain:
         with pytest.raises(ValueError, match="不存在"):
             service.get_upstream_chain(9999, db_session)
 
-    def test_chain_node_fields(self, db_session):
-        """验证链节点包含所有必要字段"""
+    def test_chain_node_no_email(self, db_session):
+        """M2: 上级链节点不含 email"""
         agent = _make_user(db_session, "agent@example.com", "agent")
         child = _make_user(db_session, "child@example.com", parent_id=agent.id)
 
@@ -133,7 +158,7 @@ class TestGetUpstreamChain:
 
         node = result["chain"][0]
         assert "user_id" in node
-        assert "email" in node
         assert "nickname" in node
         assert "role" in node
         assert "level" in node
+        assert "email" not in node

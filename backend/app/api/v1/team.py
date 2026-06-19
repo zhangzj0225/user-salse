@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
+from app.schemas.team import TeamTreeResponse, UpstreamChainResponse
 from app.services.team_service import TeamService, get_team_service
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users/me", tags=["team"])
 
 
-@router.get("/team")
+@router.get("/team", response_model=TeamTreeResponse)
 def get_team_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -24,15 +25,15 @@ def get_team_endpoint(
     """查看我的团队（下级树）。
 
     返回当前用户的完整下级树，支持逐层展开。
+    仅返回昵称、角色、注册时间、下级人数（不泄露邮箱）。
     """
     try:
-        result = service.get_team_tree(current_user.id, db)
-        return result
+        return service.get_team_tree(current_user.id, db)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/upstream")
+@router.get("/upstream", response_model=UpstreamChainResponse)
 def get_upstream_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -44,7 +45,6 @@ def get_upstream_endpoint(
     根节点显示为链条的最后一项（无上级则返回空列表）。
     """
     try:
-        result = service.get_upstream_chain(current_user.id, db)
-        return result
+        return service.get_upstream_chain(current_user.id, db)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

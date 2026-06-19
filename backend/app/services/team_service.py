@@ -18,11 +18,11 @@ class TeamService:
     def get_team_tree(self, user_id: int, db: Session) -> dict:
         """获取用户下级团队树。
 
+        单次递归遍历构建树并统计总人数，保证两者一致。
         返回: {
             "total_count": int,
             "root": {
                 "user_id": int,
-                "email": str,
                 "nickname": str | None,
                 "role": str,
                 "created_at": datetime,
@@ -35,16 +35,20 @@ class TeamService:
         if not user:
             raise ValueError("用户不存在")
 
-        root = self._build_team_node(user, db, depth=0)
-        total = self._count_total_downline(user.id, db)
+        total_count, root = self._build_tree_recursive(user, db, depth=0, visited={user.id})
 
         return {
-            "total_count": total,
+            "total_count": total_count,
             "root": root,
         }
 
-    def _build_team_node(self, user: User, db: Session, depth: int) -> dict:
-        """递归构建团队树节点。"""
+    def _build_tree_recursive(
+        self, user: User, db: Session, depth: int, visited: set
+    ) -> tuple[int, dict]:
+        """递归构建团队树，返回 (子树总数, 节点)。
+
+        depth >= MAX_TEAM_DEPTH 时停止展开子节点，但仍计入总数。
+        """
         children = (
             db.query(User)
             .filter(User.parent_id == user.id)
@@ -53,48 +57,45 @@ class TeamService:
         )
 
         child_nodes = []
+        subtree_count = 0
+
         if depth < MAX_TEAM_DEPTH:
             for child in children:
-                child_nodes.append(
-                    self._build_team_node(child, db, depth + 1)
+                if child.id in visited:
+                    logger.warning("检测到团队树循环: user_id=%d", child.id)
+                    continue
+                visited.add(child.id)
+                subtree_count += 1
+                child_count, child_node = self._build_tree_recursive(
+                    child, db, depth + 1, visited
                 )
+                subtree_count += child_count
+                child_nodes.append(child_node)
+        else:
+            # 超过最大深度，仍计入直接子节点数但不展开
+            subtree_count += len(children)
 
+        node = self._make_node(user, len(children))
+        node["children"] = child_nodes
+
+        return subtree_count, node
+
+    def _make_node(self, user: User, direct_downline_count: int) -> dict:
+        """创建树节点（不含 email，仅返回 PRD 要求的昵称/角色/注册时间/下级数）。"""
         return {
             "user_id": user.id,
-            "email": user.email,
             "nickname": user.nickname,
             "role": user.role,
             "created_at": user.created_at,
-            "direct_downline_count": len(children),
-            "children": child_nodes,
+            "direct_downline_count": direct_downline_count,
+            "children": [],
         }
-
-    def _count_total_downline(self, user_id: int, db: Session) -> int:
-        """统计所有下级总数（递归 BFS）。"""
-        total = 0
-        queue = [user_id]
-        visited = {user_id}
-
-        while queue:
-            current_id = queue.pop(0)
-            children = (
-                db.query(User)
-                .filter(User.parent_id == current_id)
-                .all()
-            )
-            for child in children:
-                if child.id not in visited:
-                    visited.add(child.id)
-                    total += 1
-                    queue.append(child.id)
-
-        return total
 
     def get_upstream_chain(self, user_id: int, db: Session) -> dict:
         """获取用户上级链。
 
         从直接上级开始，一直追溯到根节点。
-        返回: {"chain": [{"user_id", "email", "nickname", "role", "level"}, ...]}
+        返回: {"chain": [{"user_id", "nickname", "role", "level"}, ...]}
         """
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -117,7 +118,6 @@ class TeamService:
 
             chain.append({
                 "user_id": parent.id,
-                "email": parent.email,
                 "nickname": parent.nickname,
                 "role": parent.role,
                 "level": level,
