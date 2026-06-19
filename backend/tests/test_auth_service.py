@@ -296,7 +296,7 @@ class TestMockAuthServiceRegister:
         assert personal_ic.used_by is None  # 未使用
 
     def test_personal_invite_code_has_hmac_format(self, db_session):
-        """个人邀请码格式: Base62(user_id).HMAC-SHA256[:16]"""
+        """个人邀请码格式: Base62(user_id).nonce.HMAC-SHA256[:16]"""
         parent = self._make_parent(db_session)
         ic = self._make_invite_code(db_session, parent.id)
         self._send_register_code(db_session)
@@ -304,11 +304,11 @@ class TestMockAuthServiceRegister:
         service = MockAuthService()
         user, _ = service.register("new@example.com", "123456", ic.code, db_session)
 
-        # 格式校验: xxx.yyy (Base62 + "." + 16位hex)
-        assert "." in user.invite_code
+        # 格式校验: xxx.yyy.zzz (Base62 + nonce + 16位hex)
         parts = user.invite_code.split(".")
-        assert len(parts) == 2
-        assert len(parts[1]) == 16  # HMAC-SHA256[:16]
+        assert len(parts) == 3
+        assert len(parts[1]) == 8  # nonce = 4 bytes = 8 hex chars
+        assert len(parts[2]) == 16  # HMAC-SHA256[:16]
 
     def test_personal_invite_code_can_be_used_by_others(self, db_session):
         """自动生成的邀请码可被其他用户使用"""

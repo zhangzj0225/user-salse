@@ -3,6 +3,7 @@ from typing import Optional
 
 import hmac
 import hashlib
+import secrets
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -30,16 +31,57 @@ def _base62_encode(num: int) -> str:
     return "".join(reversed(result))
 
 
-def generate_invite_code(user_id: int) -> str:
-    """生成统一类型邀请码：Base62(user_id) + "." + HMAC-SHA256[:16]
+def _base62_decode(s: str) -> int:
+    """将 Base62 字符串解码为整数。"""
+    result = 0
+    for c in s:
+        result = result * 62 + _BASE62_CHARS.index(c)
+    return result
 
-    格式: {base62_user_id}.{hmac_hex_first_16_chars}
+
+def generate_invite_code(user_id: int, nonce: str | None = None) -> str:
+    """生成统一类型邀请码：Base62(user_id).nonce.HMAC-SHA256[:16]
+
+    格式: {base62_user_id}.{nonce}.{hmac_hex_first_16_chars}
     签名密钥: settings.INVITE_CODE_SECRET
+    nonce 默认随机生成（8 hex chars），支持同一用户生成多个邀请码
     """
-    payload = str(user_id).encode("utf-8")
+    if nonce is None:
+        nonce = secrets.token_hex(4)
+    payload = f"{user_id}:{nonce}".encode("utf-8")
     secret = settings.INVITE_CODE_SECRET.encode("utf-8")
     signature = hmac.new(secret, payload, hashlib.sha256).hexdigest()[:16]
-    return f"{_base62_encode(user_id)}.{signature}"
+    return f"{_base62_encode(user_id)}.{nonce}.{signature}"
+
+
+def verify_invite_code_signature(code: str) -> tuple[bool, int | None]:
+    """验证邀请码签名。
+
+    返回: (valid, user_id)
+    - valid=True: 签名匹配，user_id 为生成者 ID
+    - valid=False: 签名不匹配或格式错误，user_id=None
+    """
+    parts = code.split(".")
+    if len(parts) != 3:
+        return (False, None)
+
+    base62_uid, nonce, signature = parts
+    if not base62_uid or not nonce or not signature:
+        return (False, None)
+
+    try:
+        user_id = _base62_decode(base62_uid)
+    except (ValueError, IndexError):
+        return (False, None)
+
+    payload = f"{user_id}:{nonce}".encode("utf-8")
+    secret = settings.INVITE_CODE_SECRET.encode("utf-8")
+    expected_sig = hmac.new(secret, payload, hashlib.sha256).hexdigest()[:16]
+
+    if not hmac.compare_digest(signature, expected_sig):
+        return (False, None)
+
+    return (True, user_id)
 
 security_scheme = HTTPBearer(auto_error=False)
 

@@ -13,6 +13,7 @@ from app.core.security import (
     decode_access_token,
     generate_invite_code,
     get_current_user,
+    verify_invite_code_signature,
 )
 from app.models.user import User
 
@@ -122,11 +123,11 @@ class TestGetCurrentUser:
 class TestGenerateInviteCode:
     """S2: generate_invite_code 直接单元测试"""
 
-    def test_deterministic_same_user_id_same_code(self):
-        """相同 user_id 生成相同邀请码（确定性）"""
+    def test_different_invocations_different_codes(self):
+        """每次调用生成不同邀请码（随机 nonce）"""
         code1 = generate_invite_code(42)
         code2 = generate_invite_code(42)
-        assert code1 == code2
+        assert code1 != code2
 
     def test_different_user_ids_different_codes(self):
         """不同 user_id 生成不同邀请码"""
@@ -134,13 +135,13 @@ class TestGenerateInviteCode:
         code2 = generate_invite_code(2)
         assert code1 != code2
 
-    def test_format_contains_dot_separator(self):
-        """格式: Base62(user_id).HMAC-SHA256[:16]"""
+    def test_format_contains_two_dot_separators(self):
+        """格式: Base62(user_id).nonce.HMAC-SHA256[:16]"""
         code = generate_invite_code(100)
-        assert "." in code
         parts = code.split(".")
-        assert len(parts) == 2
-        assert len(parts[1]) == 16  # 16 hex chars = 64 bits
+        assert len(parts) == 3
+        assert len(parts[1]) == 8  # nonce = 4 bytes = 8 hex chars
+        assert len(parts[2]) == 16  # 16 hex chars = 64 bits
 
     def test_base62_encoding(self):
         """Base62 编码正确性"""
@@ -157,17 +158,30 @@ class TestGenerateInviteCode:
         assert code1.startswith("1.")
 
     def test_hmac_signature_verifiable(self):
-        """HMAC 签名可重新计算验证"""
-        import hashlib
-        import hmac as hmac_mod
-
+        """HMAC 签名可通过 verify_invite_code_signature 验证"""
         user_id = 123
         code = generate_invite_code(user_id)
-        signature_part = code.split(".")[1]
 
-        # 重新计算签名
-        payload = str(user_id).encode("utf-8")
-        secret = settings.INVITE_CODE_SECRET.encode("utf-8")
-        expected_sig = hmac_mod.new(secret, payload, hashlib.sha256).hexdigest()[:16]
+        valid, extracted_uid = verify_invite_code_signature(code)
+        assert valid is True
+        assert extracted_uid == user_id
 
-        assert signature_part == expected_sig
+    def test_verify_rejects_tampered_signature(self):
+        """篡改签名后验证失败"""
+        code = generate_invite_code(42)
+        parts = code.split(".")
+        tampered = f"{parts[0]}.{parts[1]}.ffffffffffffffff"
+
+        valid, uid = verify_invite_code_signature(tampered)
+        assert valid is False
+        assert uid is None
+
+    def test_verify_rejects_wrong_format(self):
+        """格式错误验证失败"""
+        valid, uid = verify_invite_code_signature("no-dots-here")
+        assert valid is False
+        assert uid is None
+
+        valid2, uid2 = verify_invite_code_signature("1.onlyonedot")
+        assert valid2 is False
+        assert uid2 is None
