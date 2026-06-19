@@ -1,4 +1,4 @@
-import api from "./api";
+import { request } from "./api";
 
 export interface SendCodeParams {
   email: string;
@@ -16,13 +16,37 @@ export interface LoginParams {
   code: string;
 }
 
+export interface AuthResponse {
+  data: {
+    token: string;
+    user: {
+      id: number;
+      email: string;
+      role: string;
+      nickname?: string;
+    };
+  };
+}
+
 export const authApi = {
   sendEmailCode: (params: SendCodeParams) =>
-    api.post("/auth/send-email-code", params),
+    request<{ message: string; data?: { code?: string } }>({
+      method: "POST",
+      url: "/auth/send-email-code",
+      data: params,
+    }),
 
   register: (params: RegisterParams) =>
-    api.post("/auth/register", params),
+    request<AuthResponse>({
+      method: "POST",
+      url: "/auth/register",
+      data: params,
+    }),
 
   login: (params: LoginParams) =>
-    api.post("/auth/login", params),
+    request<AuthResponse>({
+      method: "POST",
+      url: "/auth/login",
+      data: params,
+    }),
 };

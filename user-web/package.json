@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "biome lint src/",
+    "format": "biome format --write src/"
   },
   "dependencies": {
     "@ant-design/icons": "^6.0.0",
