@@ -237,13 +237,83 @@ class TestMockAuthServiceRegister:
 
     def test_register_raises_on_duplicate_email(self, db_session):
         parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
+        # 使用另一个用户的邀请码（不是 parent 的），避免触发自推荐检查
+        other = User(email="other@example.com", role="user", status="active")
+        db_session.add(other)
+        db_session.flush()
+        ic = self._make_invite_code(db_session, other.id, "OTHERCODE")
         # parent's email is already taken
         self._send_register_code(db_session, "parent@example.com")
 
         service = MockAuthService()
         with pytest.raises(ValueError, match="邮箱已注册"):
-            service.register("parent@example.com", "123456", ic.code, db_session)
+            service.register("parent@example.com", "123456", "OTHERCODE", db_session)
+
+    # AC5: 防止自推荐
+    def test_register_raises_on_self_referral(self, db_session):
+        """用户不能使用自己生成的邀请码注册"""
+        parent = self._make_parent(db_session)
+        # parent 生成了自己的邀请码
+        ic = self._make_invite_code(db_session, parent.id, "PARENTCODE")
+        # parent 尝试用自己生成的邀请码注册（用 parent 的邮箱）
+        self._send_register_code(db_session, "parent@example.com")
+
+        service = MockAuthService()
+        with pytest.raises(ValueError, match="不能使用自己的邀请码"):
+            service.register("parent@example.com", "123456", "PARENTCODE", db_session)
+
+    # AC7: 注册后自动生成个人邀请码
+    def test_register_auto_generates_personal_invite_code(self, db_session):
+        """注册成功后系统自动生成个人邀请码"""
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        user, _ = service.register("new@example.com", "123456", ic.code, db_session)
+
+        # user.invite_code 字段已设置
+        assert user.invite_code is not None
+        assert len(user.invite_code) > 0
+
+        # invite_codes 表中有对应的记录
+        personal_ic = db_session.query(InviteCode).filter(
+            InviteCode.code == user.invite_code
+        ).first()
+        assert personal_ic is not None
+        assert personal_ic.generator_id == user.id
+        assert personal_ic.used_by is None  # 未使用
+
+    def test_personal_invite_code_has_hmac_format(self, db_session):
+        """个人邀请码格式: Base62(user_id).HMAC-SHA256[:16]"""
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        self._send_register_code(db_session)
+
+        service = MockAuthService()
+        user, _ = service.register("new@example.com", "123456", ic.code, db_session)
+
+        # 格式校验: xxx.yyy (Base62 + "." + 16位hex)
+        assert "." in user.invite_code
+        parts = user.invite_code.split(".")
+        assert len(parts) == 2
+        assert len(parts[1]) == 16  # HMAC-SHA256[:16]
+
+    def test_personal_invite_code_can_be_used_by_others(self, db_session):
+        """自动生成的邀请码可被其他用户使用"""
+        # 第一轮: parent 的邀请码 → new_user 注册，自动生成 new_user 的邀请码
+        parent = self._make_parent(db_session)
+        ic = self._make_invite_code(db_session, parent.id)
+        self._send_register_code(db_session, "new@example.com")
+
+        service = MockAuthService()
+        user1, _ = service.register("new@example.com", "123456", ic.code, db_session)
+
+        # 第二轮: 另一个用户用 new_user 的邀请码注册
+        self._send_register_code(db_session, "another@example.com")
+        user2, _ = service.register("another@example.com", "123456", user1.invite_code, db_session)
+
+        assert user2.parent_id == user1.id
 
 
 class TestEmailAuthService:

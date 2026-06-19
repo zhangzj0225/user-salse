@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import hmac
+import hashlib
+
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -11,6 +14,32 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.admin_user import AdminUser
 from app.models.user import User
+
+# Base62 字符表
+_BASE62_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+
+def _base62_encode(num: int) -> str:
+    """将整数编码为 Base62 字符串。"""
+    if num == 0:
+        return _BASE62_CHARS[0]
+    result = []
+    while num > 0:
+        result.append(_BASE62_CHARS[num % 62])
+        num //= 62
+    return "".join(reversed(result))
+
+
+def generate_invite_code(user_id: int) -> str:
+    """生成统一类型邀请码：Base62(user_id) + "." + HMAC-SHA256[:16]
+
+    格式: {base62_user_id}.{hmac_hex_first_16_chars}
+    签名密钥: settings.INVITE_CODE_SECRET
+    """
+    payload = str(user_id).encode("utf-8")
+    secret = settings.INVITE_CODE_SECRET.encode("utf-8")
+    signature = hmac.new(secret, payload, hashlib.sha256).hexdigest()[:16]
+    return f"{_base62_encode(user_id)}.{signature}"
 
 security_scheme = HTTPBearer(auto_error=False)
 

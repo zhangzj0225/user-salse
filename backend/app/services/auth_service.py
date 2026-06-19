@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token
+from app.core.security import create_access_token, generate_invite_code
 from app.models.admin_user import AdminUser
 from app.models.email_verification_code import EmailVerificationCode
 from app.models.invite_code import InviteCode
@@ -92,13 +92,19 @@ class MockAuthService(AuthService):
     def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
         record = _verify_email_code(db, email, "register", code)
 
-        if db.query(User).filter(User.email == email).first():
-            raise ValueError("邮箱已注册")
-
         # Check if invite code exists at all (distinct from "already used")
         ic_exists = db.query(InviteCode).filter(InviteCode.code == invite_code).first()
         if not ic_exists:
             raise ValueError("邀请码无效")
+
+        # AC5: 防止自推荐 — 邀请码生成者的邮箱不能与注册邮箱相同
+        # 此检查在邮箱查重之前，给出更精确的错误信息
+        generator = db.query(User).filter(User.id == ic_exists.generator_id).first()
+        if generator and generator.email == email:
+            raise ValueError("不能使用自己的邀请码")
+
+        if db.query(User).filter(User.email == email).first():
+            raise ValueError("邮箱已注册")
 
         # Lock the row for update to prevent TOCTOU race
         ic = (
@@ -114,6 +120,12 @@ class MockAuthService(AuthService):
         user = User(email=email, role="user", status="active", parent_id=ic.generator_id)
         db.add(user)
         db.flush()
+
+        # AC7: 自动生成个人邀请码
+        personal_code = generate_invite_code(user.id)
+        user.invite_code = personal_code
+        personal_ic = InviteCode(code=personal_code, generator_id=user.id)
+        db.add(personal_ic)
 
         ic.used_by = user.id
         ic.used_at = now
