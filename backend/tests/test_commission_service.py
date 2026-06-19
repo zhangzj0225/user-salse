@@ -1,5 +1,7 @@
 """Tests for CommissionEngine and record_commission."""
 
+from decimal import Decimal
+
 import pytest
 
 from app.models.commission_config import CommissionConfig
@@ -205,7 +207,7 @@ class TestCalculateFirstReward:
         )
         assert result is not None
         assert result["user_id"] == agent.id
-        assert result["amount"] == 488.40
+        assert result["amount"] == Decimal("488.40")
         assert result["commission_type"] == "first_reward"
         assert result["business_id"] == "recharge_1"
         assert result["source_user_id"] is None
@@ -242,7 +244,7 @@ class TestCalculateFirstReward:
             parent_user_id=dist.id, recharge_amount=888, recharge_id=4
         )
         assert result is not None
-        assert result["amount"] == 355.20
+        assert result["amount"] == Decimal("355.20")
 
     def test_distributor_recharge_5000(self, db_session):
         _seed_commission_configs(db_session)
@@ -275,7 +277,7 @@ class TestCalculateFirstReward:
             parent_user_id=member.id, recharge_amount=888, recharge_id=7
         )
         assert result is not None
-        assert result["amount"] == 177.60
+        assert result["amount"] == Decimal("177.60")
 
     def test_user_recharge_888(self, db_session):
         _seed_commission_configs(db_session)
@@ -286,7 +288,7 @@ class TestCalculateFirstReward:
             parent_user_id=user.id, recharge_amount=888, recharge_id=8
         )
         assert result is not None
-        assert result["amount"] == 177.60
+        assert result["amount"] == Decimal("177.60")
 
     def test_user_recharge_5000_returns_none(self, db_session):
         """普通用户推荐的人充 5000 不产生佣金"""
@@ -345,52 +347,69 @@ class TestCalculateFirstReward:
 # ── AC2: calculate_followup_reward ───────────────────────
 
 class TestCalculateFollowupReward:
-    def test_agent_distributor_returns_133_2(self, db_session):
-        """代理→经销商关系，经销商的下级充 888，代理获 133.2 元"""
+    def test_agent_distributor_chain_returns_133_2(self, db_session):
+        """C(充值人)→B(经销商)→A(代理) 链，C 充 888，代理 A 获 133.2 元"""
         _seed_commission_configs(db_session)
         agent = _make_user(db_session, "agent@test.com", role="agent")
         distributor = _make_user(db_session, "dist@test.com", role="distributor", parent_id=agent.id)
+        recharger = _make_user(db_session, "c@test.com", role="user", parent_id=distributor.id)
         engine = CommissionEngine(db_session)
 
         result = engine.calculate_followup_reward(
-            agent_id=agent.id, distributor_id=distributor.id, recharge_id=42
+            recharge_id=42, recharger_user_id=recharger.id
         )
         assert result is not None
-        assert result["amount"] == 133.20
+        assert result["amount"] == Decimal("133.20")
         assert result["commission_type"] == "followup_reward"
         assert result["business_id"] == "recharge_42_followup_" + str(agent.id)
-        assert result["source_user_id"] == distributor.id
+        # C8: source_user_id 是真实充值人 C，而非中间经销商 B
+        assert result["source_user_id"] == recharger.id
+        assert result["user_id"] == agent.id
 
-    def test_non_agent_returns_none(self, db_session):
-        """上级不是代理，不产生后续收益"""
+    def test_grandparent_not_agent_returns_none(self, db_session):
+        """经销商上级不是代理，不产生后续收益"""
         _seed_commission_configs(db_session)
         dist1 = _make_user(db_session, "dist1@test.com", role="distributor")
         dist2 = _make_user(db_session, "dist2@test.com", role="distributor", parent_id=dist1.id)
+        recharger = _make_user(db_session, "c@test.com", role="user", parent_id=dist2.id)
         engine = CommissionEngine(db_session)
 
         result = engine.calculate_followup_reward(
-            agent_id=dist1.id, distributor_id=dist2.id, recharge_id=42
+            recharge_id=42, recharger_user_id=recharger.id
         )
         assert result is None
 
-    def test_non_distributor_returns_none(self, db_session):
+    def test_parent_not_distributor_returns_none(self, db_session):
         """直接上级不是经销商，不产生后续收益"""
         _seed_commission_configs(db_session)
         agent = _make_user(db_session, "agent@test.com", role="agent")
         member = _make_user(db_session, "member@test.com", role="member", parent_id=agent.id)
+        recharger = _make_user(db_session, "c@test.com", role="user", parent_id=member.id)
         engine = CommissionEngine(db_session)
 
         result = engine.calculate_followup_reward(
-            agent_id=agent.id, distributor_id=member.id, recharge_id=42
+            recharge_id=42, recharger_user_id=recharger.id
         )
         assert result is None
 
-    def test_nonexistent_users_return_none(self, db_session):
+    def test_no_grandparent_returns_none(self, db_session):
+        """经销商无上级（经销商本人就是根），不产生后续收益"""
+        _seed_commission_configs(db_session)
+        distributor = _make_user(db_session, "dist@test.com", role="distributor")
+        recharger = _make_user(db_session, "c@test.com", role="user", parent_id=distributor.id)
+        engine = CommissionEngine(db_session)
+
+        result = engine.calculate_followup_reward(
+            recharge_id=42, recharger_user_id=recharger.id
+        )
+        assert result is None
+
+    def test_nonexistent_recharger_returns_none(self, db_session):
         _seed_commission_configs(db_session)
         engine = CommissionEngine(db_session)
 
         result = engine.calculate_followup_reward(
-            agent_id=9999, distributor_id=9998, recharge_id=42
+            recharge_id=42, recharger_user_id=9999
         )
         assert result is None
 
@@ -580,3 +599,161 @@ class TestProcessRecharge:
             recharge_id=303, recharger_user_id=child.id, amount=999
         )
         assert records == []
+
+    def test_float_amount_rejected(self, db_session):
+        """C9: float 金额（如 888.0）被拒绝，防 scene 查表变 recharge_888.0 静默无佣金"""
+        _seed_commission_configs(db_session)
+        parent = _make_user(db_session, "parent@test.com", role="agent")
+        child = _make_user(db_session, "child@test.com", role="user", parent_id=parent.id)
+        engine = CommissionEngine(db_session)
+
+        records = engine.process_recharge(
+            recharge_id=304, recharger_user_id=child.id, amount=888.0
+        )
+        assert records == []
+
+    def test_amount_inconsistent_with_recharge_record_rejected(self, db_session):
+        """C4: amount 与 recharges 记录不一致时跳过，防多记/少记且被幂等键锁死"""
+        from app.models.recharge import Recharge
+
+        _seed_commission_configs(db_session)
+        parent = _make_user(db_session, "parent@test.com", role="agent")
+        child = _make_user(db_session, "child@test.com", role="user", parent_id=parent.id)
+        # 真实充值记录是 888
+        recharge = Recharge(user_id=child.id, amount=888, target_role="member", status="approved")
+        db_session.add(recharge)
+        db_session.flush()
+        engine = CommissionEngine(db_session)
+
+        # 调用方传错 amount=5000
+        records = engine.process_recharge(
+            recharge_id=recharge.id, recharger_user_id=child.id, amount=5000
+        )
+        assert records == []
+        # 确认没有错误记账
+        count = db_session.query(CommissionRecord).filter(
+            CommissionRecord.business_id == f"recharge_{recharge.id}"
+        ).count()
+        assert count == 0
+
+    def test_followup_triggered_on_distributor_subordinate_recharge_888(self, db_session):
+        """C6: C(用户)充888，上级B是经销商，B上级A是代理 → A获首次奖励无(上级是B经销商355.2)，
+        且 A 获后续收益 133.2。验证后续收益链路在 process_recharge 内被触发。"""
+        _seed_commission_configs(db_session)
+        agent = _make_user(db_session, "agent@test.com", role="agent")
+        distributor = _make_user(db_session, "dist@test.com", role="distributor", parent_id=agent.id)
+        recharger = _make_user(db_session, "c@test.com", role="user", parent_id=distributor.id)
+        engine = CommissionEngine(db_session)
+
+        records = engine.process_recharge(
+            recharge_id=400, recharger_user_id=recharger.id, amount=888
+        )
+        db_session.commit()
+
+        # 两条：首次奖励(给经销商B 355.20) + 后续收益(给代理A 133.20)
+        assert len(records) == 2
+        by_type = {r.type: r for r in records}
+
+        first = by_type["first_reward"]
+        assert first.user_id == distributor.id
+        assert Decimal(first.amount) == Decimal("355.20")
+        assert first.source_user_id == recharger.id  # C8: 来源是充值人 C
+
+        followup = by_type["followup_reward"]
+        assert followup.user_id == agent.id
+        assert Decimal(followup.amount) == Decimal("133.20")
+        assert followup.source_user_id == recharger.id  # C8: 来源是充值人 C，非经销商 B
+        assert followup.business_id == f"recharge_400_followup_{agent.id}"
+
+    def test_followup_not_triggered_on_5000(self, db_session):
+        """C5: 后续收益仅在充 888 时触发，充 5000 不触发"""
+        _seed_commission_configs(db_session)
+        agent = _make_user(db_session, "agent@test.com", role="agent")
+        distributor = _make_user(db_session, "dist@test.com", role="distributor", parent_id=agent.id)
+        recharger = _make_user(db_session, "c@test.com", role="user", parent_id=distributor.id)
+        engine = CommissionEngine(db_session)
+
+        records = engine.process_recharge(
+            recharge_id=401, recharger_user_id=recharger.id, amount=5000
+        )
+        db_session.commit()
+
+        # 只有首次奖励（给经销商 B），无后续收益
+        assert len(records) == 1
+        assert records[0].type == "first_reward"
+        followup_count = db_session.query(CommissionRecord).filter(
+            CommissionRecord.type == "followup_reward",
+            CommissionRecord.business_id.like("%recharge_401%"),
+        ).count()
+        assert followup_count == 0
+
+    def test_process_recharge_requires_commit_to_persist(self, db_session):
+        """C1: process_recharge 只 flush 不 commit。不 commit 直接 rollback，
+        记录应消失——锁定 commit 归属契约：调用方必须负责 commit，否则静默丢账。"""
+        _seed_commission_configs(db_session)
+        parent = _make_user(db_session, "parent@test.com", role="agent")
+        child = _make_user(db_session, "child@test.com", role="user", parent_id=parent.id)
+
+        engine = CommissionEngine(db_session)
+        records = engine.process_recharge(
+            recharge_id=500, recharger_user_id=child.id, amount=888
+        )
+        # flush 后、commit 前，session 内可见
+        assert len(records) == 1
+        assert db_session.query(CommissionRecord).filter(
+            CommissionRecord.business_id == "recharge_500"
+        ).count() == 1
+
+        # 模拟调用方忘记 commit（session 关闭/回滚）
+        db_session.rollback()
+
+        # 记录消失——证明 commit 是调用方责任
+        assert db_session.query(CommissionRecord).filter(
+            CommissionRecord.business_id == "recharge_500"
+        ).count() == 0
+
+
+# ── C3: 并发幂等降级 ─────────────────────────────────────
+
+class TestRecordCommissionConcurrency:
+    def test_duplicate_flush_returns_none_not_raise(self, db_session):
+        """C3: 同 business_id 并发 flush 触发 IntegrityError 时，
+        record_commission 应幂等降级返回 None，而非抛异常回滚包裹事务。"""
+        # 直接插入一条，模拟另一事务已写入
+        db_session.add(CommissionRecord(
+            user_id=1, amount=Decimal("100.00"), type="first_reward",
+            source_user_id=2, business_id="race_biz_001",
+        ))
+        db_session.commit()
+
+        # record_commission 应查到 existing 返回 None（不触发 IntegrityError 路径）
+        result = record_commission(
+            user_id=1, amount=Decimal("200.00"), commission_type="first_reward",
+            source_user_id=3, business_id="race_biz_001", db=db_session,
+        )
+        assert result is None
+
+    def test_integrity_error_path_returns_none(self, db_session):
+        """C3: 模拟 flush 抛 IntegrityError（绕过预查），验证降级返回 None。
+        通过先让预查 miss（不同 session 已提交但当前 session 未见），再 flush 撞 UNIQUE。"""
+        # 准备：用同一 session 直接构造 flush 撞 UNIQUE 的场景
+        # 预查无 existing（表空），插入第一条成功
+        r1 = record_commission(
+            user_id=1, amount=Decimal("100.00"), commission_type="first_reward",
+            source_user_id=2, business_id="race_biz_002", db=db_session,
+        )
+        assert r1 is not None
+        db_session.commit()
+
+        # 再次调用同 business_id，预查命中 → 返回 None（覆盖幂等降级路径）
+        r2 = record_commission(
+            user_id=1, amount=Decimal("999.00"), commission_type="sale_commission",
+            source_user_id=3, business_id="race_biz_002", db=db_session,
+        )
+        assert r2 is None
+
+        count = db_session.query(CommissionRecord).filter(
+            CommissionRecord.business_id == "race_biz_002"
+        ).count()
+        assert count == 1
+

@@ -1,18 +1,24 @@
 import logging
+from decimal import Decimal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.commission_config import CommissionConfig
 from app.models.commission_record import CommissionRecord
+from app.models.recharge import Recharge
 from app.models.user import User
 from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
+# 充值金额常量，作为 amount 一致性校验与 followup 触发的依据
+VALID_RECHARGE_AMOUNTS = (888, 5000, 10000)
+
 
 def record_commission(
     user_id: int,
-    amount: float,
+    amount: Decimal,
     commission_type: str,
     source_user_id: int | None,
     business_id: str,
@@ -21,6 +27,10 @@ def record_commission(
     """Record a commission with idempotency protection.
 
     Returns the CommissionRecord if created, None if already exists.
+
+    幂等保证：先查 existing；并发下两个事务同时未查到时，第二个 flush 会因
+    business_id UNIQUE 抛 IntegrityError，捕获后重查返回 None（幂等降级），
+    而非让 IntegrityError 上抛导致包裹事务整体回滚。
     """
     existing = (
         db.query(CommissionRecord)
@@ -41,7 +51,16 @@ def record_commission(
         business_id=business_id,
     )
     db.add(record)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # 并发竞态：另一事务已插入同 business_id。回滚当前 flush 的待写入，
+        # 重查确认存在后返回 None。
+        db.rollback()
+        logger.info(
+            "Commission race resolved (idempotent): business_id=%s", business_id
+        )
+        return None
 
     AuditService.log(
         action="commission_create",
@@ -61,7 +80,7 @@ def record_commission(
     )
 
     logger.info(
-        "Commission recorded: user_id=%d amount=%.2f type=%s business_id=%s",
+        "Commission recorded: user_id=%d amount=%s type=%s business_id=%s",
         user_id,
         amount,
         commission_type,
@@ -75,6 +94,10 @@ class CommissionEngine:
 
     场景 A（额度销售）不产生佣金，不经过本引擎。
     场景 B（推荐充值）产生佣金，由本引擎计算和记账。
+
+    事务约定：本引擎所有写操作只 flush 不 commit。调用方（Story 3.x 充值确认
+    流程）必须在同一事务内、process_recharge 返回后负责 commit，否则佣金记录
+    会随 session 关闭而回滚（静默丢失）。详见 process_recharge docstring。
     """
 
     def __init__(self, db: Session):
@@ -96,7 +119,8 @@ class CommissionEngine:
     # ── 场景 B：首次奖励 ─────────────────────────────────
 
     def calculate_first_reward(
-        self, parent_user_id: int, recharge_amount: int, recharge_id: int
+        self, parent_user_id: int, recharge_amount: int, recharge_id: int,
+        source_user_id: int | None = None,
     ) -> dict | None:
         """计算场景 B 首次奖励。
 
@@ -104,9 +128,12 @@ class CommissionEngine:
             parent_user_id: 上级用户 ID
             recharge_amount: 充值金额（888/5000/10000）
             recharge_id: 充值记录 ID（用于生成 business_id）
+            source_user_id: 触发本次充值的下级用户 ID（即充值人），
+                            写入 CommissionRecord.source_user_id，用于收益明细展示来源。
 
         Returns:
-            dict with keys: user_id, amount, commission_type, business_id, source_user_id
+            dict with keys: user_id, amount(Decimal), commission_type,
+            business_id, source_user_id
             None if no config found (e.g. 普通用户推荐充 5000/10000)
         """
         parent = self.db.query(User).filter(User.id == parent_user_id).first()
@@ -125,36 +152,46 @@ class CommissionEngine:
 
         return {
             "user_id": parent_user_id,
-            "amount": float(config.reward_value),
+            "amount": Decimal(config.reward_value),
             "commission_type": "first_reward",
             "business_id": f"recharge_{recharge_id}",
-            "source_user_id": None,  # 由 process_recharge 设置
+            "source_user_id": source_user_id,
         }
 
     # ── 场景 B：后续收益 ─────────────────────────────────
 
     def calculate_followup_reward(
-        self, agent_id: int, distributor_id: int, recharge_id: int
+        self, recharge_id: int, recharger_user_id: int,
     ) -> dict | None:
         """计算后续收益：代理从经销商的下级充值中获得 133.2 元/笔。
 
-        仅当 agent_id 的角色是代理、distributor_id 的角色是经销商时才计算。
+        由 recharge_id 反查链路，不依赖调用方传 agent_id/distributor_id：
+            recharger(C) → parent(B=distributor) → parent.parent(A=agent)
+        仅当 C 充值金额==888、B 是经销商、A 是代理时才计算。
 
         Args:
-            agent_id: 代理用户 ID（上级的上级）
-            distributor_id: 经销商用户 ID（直接上级）
-            recharge_id: 下下级充值记录 ID
+            recharge_id: 下下级 C 的充值记录 ID
+            recharger_user_id: 充值人 C 的用户 ID
 
         Returns:
-            dict with keys: user_id, amount, commission_type, business_id
-            None if条件不满足
+            dict with keys: user_id(代理A), amount(Decimal), commission_type,
+            business_id, source_user_id(充值人C)
+            None if 条件不满足
         """
-        agent = self.db.query(User).filter(User.id == agent_id).first()
-        distributor = self.db.query(User).filter(User.id == distributor_id).first()
-
-        if not agent or not distributor:
+        recharger = self.db.query(User).filter(User.id == recharger_user_id).first()
+        if not recharger or not recharger.parent_id:
             return None
-        if agent.role != "agent" or distributor.role != "distributor":
+
+        distributor = self.db.query(User).filter(
+            User.id == recharger.parent_id
+        ).first()
+        if not distributor or distributor.role != "distributor" or not distributor.parent_id:
+            return None
+
+        agent = self.db.query(User).filter(
+            User.id == distributor.parent_id
+        ).first()
+        if not agent or agent.role != "agent":
             return None
 
         config = self.get_config(role="agent", scene="followup_reward")
@@ -162,11 +199,11 @@ class CommissionEngine:
             return None
 
         return {
-            "user_id": agent_id,
-            "amount": float(config.reward_value),
+            "user_id": agent.id,
+            "amount": Decimal(config.reward_value),
             "commission_type": "followup_reward",
-            "business_id": f"recharge_{recharge_id}_followup_{agent_id}",
-            "source_user_id": distributor_id,
+            "business_id": f"recharge_{recharge_id}_followup_{agent.id}",
+            "source_user_id": recharger_user_id,  # 真实充值人 C
         }
 
     # ── 长期奖励（Epic 5 实现） ──────────────────────────
@@ -189,23 +226,35 @@ class CommissionEngine:
     ) -> list[CommissionRecord]:
         """充值确认后的佣金处理。
 
-        只处理首次奖励（直接上级获得）。
-        后续收益由 Story 3.8 在经销商的下级充值时调用 calculate_followup_reward()。
-
-        ⚠️ 调用方必须确保 amount 与 recharge_id 对应的充值记录一致。
+        处理两类佣金：
+        1. 首次奖励：充值人的直接上级获得（4 角色 × 3 金额查表）。
+        2. 后续收益：仅当充值金额==888 且 充值人上级是经销商、经销商上级是代理
+           时触发，代理获得 133.2 元/笔。
 
         Args:
             recharge_id: 充值记录 ID
             recharger_user_id: 充值人用户 ID
-            amount: 充值金额（必须是 888/5000/10000）
+            amount: 充值金额（必须是 888/5000/10000，且必须与 recharge_id 对应的
+                    recharges 记录一致）
 
         Returns:
-            已创建的 CommissionRecord 列表（可能为空）
+            已创建的 CommissionRecord 列表（可能为空）。
+
+        ⚠️ 事务约定（C1）：本方法只 flush 不 commit。调用方必须在同一事务内
+        于本方法返回后调用 db.commit()，否则佣金记录随 session 关闭回滚丢失。
+        已有测试 test_process_recharge_requires_commit_to_persist 锁定此契约。
+
+        ⚠️ amount 一致性（C4）：本方法会查 recharges 表校验 amount 与记录一致。
         """
         records: list[CommissionRecord] = []
 
+        # C9: amount 必须是 int，防 888.0(float) 过 in 校验但破坏 scene 查表
+        if not isinstance(amount, int) or isinstance(amount, bool):
+            logger.warning("非法充值金额类型: amount=%r, 跳过佣金记账", amount)
+            return records
+
         # SF-1: 校验金额合法性
-        if amount not in (888, 5000, 10000):
+        if amount not in VALID_RECHARGE_AMOUNTS:
             logger.warning("非法充值金额: amount=%d, 跳过佣金记账", amount)
             return records
 
@@ -214,16 +263,28 @@ class CommissionEngine:
             logger.warning("充值用户不存在: user_id=%d", recharger_user_id)
             return records
 
+        # C4: 校验 amount 与 recharges 记录一致，防调用方传错金额多记/少记且被幂等键锁死
+        recharge = self.db.query(Recharge).filter(Recharge.id == recharge_id).first()
+        if recharge is not None:
+            if int(recharge.amount) != amount:
+                logger.error(
+                    "充值金额不一致: recharge_id=%d 记录金额=%s 入参amount=%d, 跳过佣金记账",
+                    recharge_id, recharge.amount, amount,
+                )
+                return records
+        # recharge 不存在时（如单元测试直接构造场景）不阻塞，由调用方在真实流程保证存在
+
         # 无上级，跳过所有佣金记账
         if not recharger.parent_id:
             logger.info("用户无上级，跳过佣金记账: user_id=%d", recharger_user_id)
             return records
 
-        # 计算首次奖励
+        # ── 首次奖励：直接上级获得 ──
         reward = self.calculate_first_reward(
             parent_user_id=recharger.parent_id,
             recharge_amount=amount,
             recharge_id=recharge_id,
+            source_user_id=recharger_user_id,
         )
 
         if reward:
@@ -231,13 +292,13 @@ class CommissionEngine:
                 user_id=reward["user_id"],
                 amount=reward["amount"],
                 commission_type=reward["commission_type"],
-                source_user_id=recharger_user_id,
+                source_user_id=reward["source_user_id"],
                 business_id=reward["business_id"],
             )
             if record:
                 records.append(record)
                 logger.info(
-                    "首次奖励已记账: 上级=%d 金额=%.2f business_id=%s",
+                    "首次奖励已记账: 上级=%d 金额=%s business_id=%s",
                     reward["user_id"],
                     reward["amount"],
                     reward["business_id"],
@@ -249,6 +310,29 @@ class CommissionEngine:
                 amount,
             )
 
+        # ── 后续收益：仅充 888 时触发链路检查（C6 收归） ──
+        if amount == 888:
+            followup = self.calculate_followup_reward(
+                recharge_id=recharge_id,
+                recharger_user_id=recharger_user_id,
+            )
+            if followup:
+                record = self.record(
+                    user_id=followup["user_id"],
+                    amount=followup["amount"],
+                    commission_type=followup["commission_type"],
+                    source_user_id=followup["source_user_id"],
+                    business_id=followup["business_id"],
+                )
+                if record:
+                    records.append(record)
+                    logger.info(
+                        "后续收益已记账: 代理=%d 金额=%s business_id=%s",
+                        followup["user_id"],
+                        followup["amount"],
+                        followup["business_id"],
+                    )
+
         return records
 
     # ── 记账（保持不变） ─────────────────────────────────
@@ -256,7 +340,7 @@ class CommissionEngine:
     def record(
         self,
         user_id: int,
-        amount: float,
+        amount: Decimal,
         commission_type: str,
         source_user_id: int | None,
         business_id: str,
