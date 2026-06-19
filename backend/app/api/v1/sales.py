@@ -27,6 +27,8 @@ def sell_account_endpoint(
 
     代理/经销商消耗 1 个可售额度，为客户开通 888 会员。
     不产生佣金。客户上级 = 销售者。
+
+    前置：需先调用 POST /auth/send-email-code (scene=sale_verify) 发送验证码。
     """
     if current_user.role not in ("agent", "distributor"):
         raise HTTPException(
@@ -38,6 +40,7 @@ def sell_account_endpoint(
         result = service.sell_account(
             seller_id=current_user.id,
             customer_email=request.customer_email,
+            verification_code=request.verification_code,
             db=db,
         )
         return result

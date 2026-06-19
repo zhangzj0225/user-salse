@@ -1,12 +1,31 @@
 """Tests for sales API endpoints。"""
 
+from datetime import datetime, timedelta, timezone
+
 from app.core.security import create_access_token
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.user import User
+
+MOCK_CODE = "123456"
+
+
+def _make_code(db, email, scene="sale_verify", code=MOCK_CODE):
+    record = EmailVerificationCode(
+        email=email,
+        code=code,
+        scene=scene,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    db.add(record)
+    db.commit()
 
 
 class TestSalesAPI:
     def test_sell_requires_auth(self, client):
-        resp = client.post("/api/v1/sales", json={"customer_email": "c@example.com"})
+        resp = client.post("/api/v1/sales", json={
+            "customer_email": "c@example.com",
+            "verification_code": MOCK_CODE,
+        })
         assert resp.status_code == 401
 
     def test_sell_success_agent(self, client, db_session):
@@ -14,11 +33,12 @@ class TestSalesAPI:
                      account_quota=5, account_used=0)
         db_session.add(agent)
         db_session.commit()
+        _make_code(db_session, "customer@example.com")
 
         token = create_access_token(subject=agent.id, role="agent", token_type="user")
         resp = client.post(
             "/api/v1/sales",
-            json={"customer_email": "customer@example.com"},
+            json={"customer_email": "customer@example.com", "verification_code": MOCK_CODE},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
@@ -32,11 +52,12 @@ class TestSalesAPI:
                     account_quota=11, account_used=0)
         db_session.add(dist)
         db_session.commit()
+        _make_code(db_session, "customer@example.com")
 
         token = create_access_token(subject=dist.id, role="distributor", token_type="user")
         resp = client.post(
             "/api/v1/sales",
-            json={"customer_email": "customer@example.com"},
+            json={"customer_email": "customer@example.com", "verification_code": MOCK_CODE},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
@@ -50,7 +71,7 @@ class TestSalesAPI:
         token = create_access_token(subject=user.id, role="user", token_type="user")
         resp = client.post(
             "/api/v1/sales",
-            json={"customer_email": "customer@example.com"},
+            json={"customer_email": "customer@example.com", "verification_code": MOCK_CODE},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 403
@@ -60,11 +81,12 @@ class TestSalesAPI:
                      account_quota=1, account_used=1)
         db_session.add(agent)
         db_session.commit()
+        _make_code(db_session, "customer@example.com")
 
         token = create_access_token(subject=agent.id, role="agent", token_type="user")
         resp = client.post(
             "/api/v1/sales",
-            json={"customer_email": "customer@example.com"},
+            json={"customer_email": "customer@example.com", "verification_code": MOCK_CODE},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 400
@@ -76,11 +98,12 @@ class TestSalesAPI:
         existing = User(email="taken@example.com", role="user", status="active")
         db_session.add_all([agent, existing])
         db_session.commit()
+        _make_code(db_session, "taken@example.com")
 
         token = create_access_token(subject=agent.id, role="agent", token_type="user")
         resp = client.post(
             "/api/v1/sales",
-            json={"customer_email": "taken@example.com"},
+            json={"customer_email": "taken@example.com", "verification_code": MOCK_CODE},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 400
@@ -95,7 +118,39 @@ class TestSalesAPI:
         token = create_access_token(subject=agent.id, role="agent", token_type="user")
         resp = client.post(
             "/api/v1/sales",
-            json={"customer_email": "not-an-email"},
+            json={"customer_email": "not-an-email", "verification_code": MOCK_CODE},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422
+
+    def test_sell_invalid_verification_code(self, client, db_session):
+        """S2: 验证码错误"""
+        agent = User(email="agent@example.com", role="agent", status="active",
+                     account_quota=5, account_used=0)
+        db_session.add(agent)
+        db_session.commit()
+        _make_code(db_session, "customer@example.com")
+
+        token = create_access_token(subject=agent.id, role="agent", token_type="user")
+        resp = client.post(
+            "/api/v1/sales",
+            json={"customer_email": "customer@example.com", "verification_code": "000000"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 400
+        assert "验证码" in resp.json()["detail"]
+
+    def test_sell_missing_verification_code(self, client, db_session):
+        """缺少 verification_code 字段"""
+        agent = User(email="agent@example.com", role="agent", status="active",
+                     account_quota=5, account_used=0)
+        db_session.add(agent)
+        db_session.commit()
+
+        token = create_access_token(subject=agent.id, role="agent", token_type="user")
+        resp = client.post(
+            "/api/v1/sales",
+            json={"customer_email": "customer@example.com"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 422
