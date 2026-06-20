@@ -300,11 +300,11 @@ class TestListRecharges:
         # BH-5: 第一笔 approve 后才能建第二笔 pending
         r2 = service.create_recharge(user.id, 5000, db_session)
 
-        pending = service.list_recharges(db_session, status="pending")
+        pending, pending_total = service.list_recharges(db_session, status="pending")
         assert len(pending) == 1
         assert pending[0].id == r2.id
 
-        all_recharges = service.list_recharges(db_session)
+        all_recharges, all_total = service.list_recharges(db_session)
         assert len(all_recharges) == 2
 
 

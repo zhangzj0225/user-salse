@@ -203,13 +203,24 @@ class RechargeService:
         )
 
     def list_recharges(
-        self, db: Session, status: str | None = None
-    ) -> list[Recharge]:
-        """管理员查看充值记录列表，支持状态筛选。"""
+        self, db: Session, status: str | None = None,
+        limit: int = 20, offset: int = 0,
+    ) -> tuple[list[Recharge], int]:
+        """管理员查看充值记录列表，支持状态筛选和分页。
+
+        返回: (records, total)
+        """
         query = db.query(Recharge)
         if status:
             query = query.filter(Recharge.status == status)
-        return query.order_by(Recharge.created_at.desc()).all()
+        total = query.count()
+        records = (
+            query.order_by(Recharge.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        return records, total
 
 
 def get_recharge_service() -> RechargeService:

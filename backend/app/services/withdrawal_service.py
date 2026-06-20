@@ -147,15 +147,26 @@ class WithdrawalService:
         self,
         db: Session,
         status: str | None = None,
-    ) -> list[dict]:
-        """管理员查看所有工单列表（含用户邮箱）。"""
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """管理员查看所有工单列表（含用户邮箱），支持分页。
+
+        返回: (tickets, total)
+        """
         query = db.query(Ticket)
         if status:
             if status not in ("pending", "paid", "rejected"):
                 raise ValueError("无效的工单状态")
             query = query.filter(Ticket.status == status)
 
-        tickets = query.order_by(Ticket.created_at.desc()).all()
+        total = query.count()
+        tickets = (
+            query.order_by(Ticket.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
 
         # 批量加载用户邮箱
         user_ids = {t.user_id for t in tickets}
@@ -164,7 +175,7 @@ class WithdrawalService:
             user_list = db.query(User).filter(User.id.in_(user_ids)).all()
             users = {u.id: u.email for u in user_list}
 
-        return [
+        result = [
             {
                 "id": t.id,
                 "user_id": t.user_id,
@@ -179,6 +190,7 @@ class WithdrawalService:
             }
             for t in tickets
         ]
+        return result, total
 
     def approve_ticket(
         self,

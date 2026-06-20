@@ -29,29 +29,35 @@ _VALID_STATUSES = ("pending", "approved", "rejected")
 @router.get("/recharges", response_model=dict)
 def list_recharges_endpoint(
     status: Optional[str] = Query(None, description="筛选状态: pending/approved/rejected"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin),
     service: RechargeService = Depends(get_recharge_service),
 ):
-    """管理员查看充值记录列表，支持状态筛选。"""
-    # S2: 状态参数枚举校验
+    """管理员查看充值记录列表，支持状态筛选和分页。"""
     if status is not None and status not in _VALID_STATUSES:
         raise HTTPException(
             status_code=400,
             detail=f"无效的状态参数，允许值: {_VALID_STATUSES}",
         )
 
-    recharges = service.list_recharges(db, status=status)
+    recharges, total = service.list_recharges(db, status=status, limit=limit, offset=offset)
 
-    # S6: 管理员列表返回用户邮箱
+    # 批量加载用户邮箱
+    user_ids = {r.user_id for r in recharges}
+    users = {}
+    if user_ids:
+        user_list = db.query(User).filter(User.id.in_(user_ids)).all()
+        users = {u.id: u.email for u in user_list}
+
     result = []
     for r in recharges:
-        user = db.query(User).filter(User.id == r.user_id).first()
         info = AdminRechargeInfo.model_validate(r)
-        info.user_email = user.email if user else ""
+        info.user_email = users.get(r.user_id, "")
         result.append(info.model_dump())
 
-    return {"data": result, "total": len(result)}
+    return {"data": result, "total": total, "limit": limit, "offset": offset}
 
 
 @router.post("/recharges/{recharge_id}/approve", response_model=dict)
@@ -79,19 +85,21 @@ _VALID_TICKET_STATUSES = ("pending", "paid", "rejected")
 @router.get("/tickets", response_model=AdminTicketListResponse)
 def list_tickets_endpoint(
     status: Optional[str] = Query(None, description="筛选状态: pending/paid/rejected"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin),
     service: WithdrawalService = Depends(get_withdrawal_service),
 ):
-    """管理员查看提现工单列表，支持状态筛选。"""
+    """管理员查看提现工单列表，支持状态筛选和分页。"""
     if status is not None and status not in _VALID_TICKET_STATUSES:
         raise HTTPException(
             status_code=400,
             detail=f"无效的状态参数，允许值: {_VALID_TICKET_STATUSES}",
         )
 
-    tickets = service.list_all_tickets(db, status=status)
-    return {"tickets": tickets, "total": len(tickets)}
+    tickets, total = service.list_all_tickets(db, status=status, limit=limit, offset=offset)
+    return {"tickets": tickets, "total": total}
 
 
 @router.post("/tickets/{ticket_id}/approve", response_model=TicketActionResponse)
