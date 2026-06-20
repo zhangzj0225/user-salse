@@ -4,7 +4,6 @@ import logging
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.models.commission_record import CommissionRecord
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -12,6 +11,11 @@ logger = logging.getLogger(__name__)
 
 class UserManagementService:
     """管理员用户管理服务。"""
+
+    @staticmethod
+    def _escape_like(value: str) -> str:
+        """转义 LIKE 通配符，防止搜索注入。"""
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     def list_users(
         self,
@@ -28,10 +32,11 @@ class UserManagementService:
         query = db.query(User)
 
         if search:
+            escaped = self._escape_like(search)
             query = query.filter(
                 or_(
-                    User.email.ilike(f"%{search}%"),
-                    User.nickname.ilike(f"%{search}%"),
+                    User.email.ilike(f"%{escaped}%", escape="\\"),
+                    User.nickname.ilike(f"%{escaped}%", escape="\\"),
                 )
             )
 
@@ -83,23 +88,22 @@ class UserManagementService:
             parent = db.query(User).filter(User.id == user.parent_id).first()
             parent_email = parent.email if parent else None
 
-        # 团队统计
+        # 团队统计 — 批量 BFS 避免 N+1
         direct_count = db.query(User).filter(User.parent_id == user_id).count()
 
-        # 递归统计所有下级
-        total_count = direct_count
-        queue = [user_id]
-        visited = {user_id}
-        while queue:
-            current = queue.pop(0)
-            children = db.query(User).filter(User.parent_id == current).all()
-            for child in children:
-                if child.id not in visited:
-                    visited.add(child.id)
-                    queue.append(child.id)
-            if current != user_id:
-                pass  # direct_count 已计
-        total_count = len(visited) - 1  # 排除自己
+        # 递归统计所有下级：分层批量查询
+        all_descendants: set[int] = set()
+        current_level = [user_id]
+        while current_level:
+            children = (
+                db.query(User.id)
+                .filter(User.parent_id.in_(current_level))
+                .all()
+            )
+            next_level = [c[0] for c in children if c[0] not in all_descendants]
+            all_descendants.update(next_level)
+            current_level = next_level
+        total_count = len(all_descendants)
 
         # 收益汇总
         from app.services.earnings_service import calculate_balance_summary

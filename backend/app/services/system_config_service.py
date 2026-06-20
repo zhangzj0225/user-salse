@@ -1,6 +1,7 @@
 """系统参数配置服务 (Story 4.4)。"""
 
 import logging
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.orm import Session
 
@@ -9,27 +10,27 @@ from app.models.system_config import SystemConfig
 
 logger = logging.getLogger(__name__)
 
-# 默认配置项（首次访问时自动初始化）
+# 默认配置项（应用启动时自动初始化）
 DEFAULT_CONFIGS = {
-    "recharge_amount_888": ("888", "888元充值金额"),
-    "recharge_amount_5000": ("5000", "5000元充值金额"),
-    "recharge_amount_10000": ("10000", "10000元充值金额"),
-    "quota_for_agent": ("22", "代理可售额度"),
-    "quota_for_distributor": ("11", "经销商可售额度"),
-    "min_withdrawal_amount": ("100", "最低提现金额"),
-    "settlement_cycle_days": ("30", "结算周期(天)"),
-    "followup_reward_amount": ("133.2", "后续收益金额"),
+    "recharge_amount_888": ("888", "888元充值金额", "decimal"),
+    "recharge_amount_5000": ("5000", "5000元充值金额", "decimal"),
+    "recharge_amount_10000": ("10000", "10000元充值金额", "decimal"),
+    "quota_for_agent": ("22", "代理可售额度", "int"),
+    "quota_for_distributor": ("11", "经销商可售额度", "int"),
+    "min_withdrawal_amount": ("100", "最低提现金额", "decimal"),
+    "settlement_cycle_days": ("30", "结算周期(天)", "int"),
+    "followup_reward_amount": ("133.2", "后续收益金额", "decimal"),
 }
+
+_initialized = False
 
 
 class SystemConfigService:
     """系统参数配置服务。"""
 
     def list_configs(self, db: Session) -> list[dict]:
-        """列出所有系统配置，缺失的自动初始化。"""
-        # 确保默认配置存在
+        """列出所有系统配置。"""
         self._ensure_defaults(db)
-
         configs = db.query(SystemConfig).order_by(SystemConfig.config_key).all()
         return [
             {
@@ -55,16 +56,40 @@ class SystemConfigService:
     def update_config(
         self, key: str, new_value: str, admin_id: int, db: Session
     ) -> dict:
-        """更新配置项，记录变更日志。"""
+        """更新配置项，记录变更日志。
+
+        数值型配置会校验格式。
+        """
         self._ensure_defaults(db)
-        config = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
+
+        # 行锁防并发
+        config = (
+            db.query(SystemConfig)
+            .filter(SystemConfig.config_key == key)
+            .with_for_update()
+            .first()
+        )
         if not config:
             raise ValueError(f"配置项 {key} 不存在")
+
+        # 数值校验
+        meta = DEFAULT_CONFIGS.get(key)
+        if meta and meta[2] in ("int", "decimal"):
+            try:
+                if meta[2] == "int":
+                    val = int(new_value)
+                    if val < 0:
+                        raise ValueError(f"{key} 不能为负数")
+                else:
+                    val = Decimal(new_value)
+                    if val < 0:
+                        raise ValueError(f"{key} 不能为负数")
+            except (ValueError, InvalidOperation):
+                raise ValueError(f"配置项 {key} 需要有效的{'整数' if meta[2] == 'int' else '数值'}")
 
         old_value = config.config_value
         config.config_value = new_value
 
-        # 记录变更日志
         log = ConfigChangeLog(
             admin_id=admin_id,
             config_key=key,
@@ -106,9 +131,14 @@ class SystemConfigService:
         ]
 
     def _ensure_defaults(self, db: Session) -> None:
-        """确保默认配置项存在（幂等）。"""
+        """确保默认配置项存在。仅在首次调用时初始化。"""
+        global _initialized
+        if _initialized:
+            return
+
         existing = {c.config_key for c in db.query(SystemConfig).all()}
-        for key, (value, desc) in DEFAULT_CONFIGS.items():
+        added = False
+        for key, (value, desc, _) in DEFAULT_CONFIGS.items():
             if key not in existing:
                 config = SystemConfig(
                     config_key=key,
@@ -116,7 +146,16 @@ class SystemConfigService:
                     description=desc,
                 )
                 db.add(config)
-        db.commit()
+                added = True
+        if added:
+            db.commit()
+        _initialized = True
+
+
+def reset_config_initialization():
+    """重置初始化标志（测试用）。"""
+    global _initialized
+    _initialized = False
 
 
 def get_system_config_service() -> SystemConfigService:

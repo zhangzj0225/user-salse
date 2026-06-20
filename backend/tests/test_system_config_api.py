@@ -1,8 +1,18 @@
 """Tests for Story 4.4 系统参数配置。"""
 
+import pytest
 from app.core.security import create_access_token
 from app.models.admin_user import AdminUser
 from app.models.user import User
+from app.services.system_config_service import reset_config_initialization
+
+
+@pytest.fixture(autouse=True)
+def _reset_config_init():
+    """每个测试前重置初始化标志，确保 _ensure_defaults 在干净 DB 上运行。"""
+    reset_config_initialization()
+    yield
+    reset_config_initialization()
 
 
 def _make_admin(db):
@@ -152,3 +162,48 @@ class TestSystemConfigAPI:
         assert resp.status_code == 200
         logs = resp.json()["logs"]
         assert len(logs) >= 2
+
+    def test_update_config_invalid_int_value(self, client, db_session):
+        """整数型配置传入非数字应报错。"""
+        admin = _make_admin(db_session)
+        token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
+        client.get(
+            "/api/v1/admin/configs",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp = client.put(
+            "/api/v1/admin/configs/quota_for_agent",
+            json={"config_value": "abc"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 400
+
+    def test_update_config_negative_value(self, client, db_session):
+        """负数值应报错。"""
+        admin = _make_admin(db_session)
+        token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
+        client.get(
+            "/api/v1/admin/configs",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp = client.put(
+            "/api/v1/admin/configs/quota_for_agent",
+            json={"config_value": "-5"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 400
+
+    def test_update_config_invalid_decimal_value(self, client, db_session):
+        """小数型配置传入非数字应报错。"""
+        admin = _make_admin(db_session)
+        token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
+        client.get(
+            "/api/v1/admin/configs",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp = client.put(
+            "/api/v1/admin/configs/followup_reward_amount",
+            json={"config_value": "not_a_number"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 400
