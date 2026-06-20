@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session
 from app.models.audit_log import AuditLog
 from app.models.ticket import Ticket
 from app.models.user import User
+from app.core.constants import (
+    VALID_RECHARGE_AMOUNTS,
+)
 from app.services.earnings_service import calculate_balance_summary
 
 logger = logging.getLogger(__name__)
 
-# S1: 最低提现额从 SystemConfig 表读取（可配），fallback 100.00。
-# FR-23「参数修改仅对新业务生效」—— approval 类参数影响已有值。
+# 最低提现额默认值（与 SystemConfig.seed 保持同步）
 _DEFAULT_MIN_WITHDRAWAL = Decimal("100.00")
 
 

@@ -14,8 +14,7 @@ from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
-# 充值金额常量，作为 amount 一致性校验与 followup 触发的依据
-VALID_RECHARGE_AMOUNTS = (888, 5000, 10000)
+from app.core.constants import VALID_RECHARGE_AMOUNTS, ROLE_LEVEL
 
 
 def record_commission(

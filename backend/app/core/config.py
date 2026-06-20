@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # 运行环境：默认 production（fail-closed），生产忘设 ENV 也会强校验密钥。
     # 仅显式设 ENV=dev 时放宽（本地开发/测试）。
     ENV: Literal["dev", "production"] = "production"
+    # CORS 允许的来源，逗号分隔。默认 "*"（开发），生产通过 .env 设具体域名。
+    CORS_ORIGINS: str = "*"
 
     model_config = {"env_file": ".env"}
 

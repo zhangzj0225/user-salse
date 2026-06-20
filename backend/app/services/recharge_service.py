@@ -11,25 +11,11 @@ from app.services.audit_service import AuditService
 from app.services.commission_service import CommissionEngine
 from app.services.license_service import LicenseService
 
+from app.core.constants import (
+    VALID_RECHARGE_AMOUNTS, AMOUNT_ROLE_MAP, AMOUNT_QUOTA_MAP, ROLE_LEVEL,
+)
+
 logger = logging.getLogger(__name__)
-
-VALID_RECHARGE_AMOUNTS = (888, 5000, 10000)
-
-AMOUNT_ROLE_MAP = {
-    888: "member",
-    5000: "distributor",
-    10000: "agent",
-}
-
-AMOUNT_QUOTA_MAP = {
-    888: 0,
-    5000: 11,
-    10000: 22,
-}
-
-# 角色等级（用于 BH-3：充值后取已购最高档，而非覆盖式赋值，避免降级）
-# PRD「各充值独立不互斥」—— 充 10000 后再充 888 不应把代理降级为会员
-ROLE_LEVEL = {"user": 0, "member": 1, "distributor": 2, "agent": 3}
 
 
 def _higher_role(current: str, candidate: str) -> str:
