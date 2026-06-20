@@ -232,6 +232,18 @@ class WithdrawalService:
             new_value={"status": "paid"},
         )
         db.add(audit)
+
+        # Story 5.2: 通知用户工单状态变更
+        from app.services.notification_service import NotificationService
+        NotificationService.notify_ticket_status_changed(
+            user_id=ticket.user_id,
+            ticket_id=ticket.id,
+            old_status=old_status,
+            new_status="paid",
+            reason=None,
+            db=db,
+        )
+
         db.commit()
         db.refresh(ticket)
 
@@ -285,6 +297,18 @@ class WithdrawalService:
             new_value={"status": "rejected", "reject_reason": reject_reason},
         )
         db.add(audit)
+
+        # Story 5.2: 通知用户工单被拒绝
+        from app.services.notification_service import NotificationService
+        NotificationService.notify_ticket_status_changed(
+            user_id=ticket.user_id,
+            ticket_id=ticket.id,
+            old_status=old_status,
+            new_status="rejected",
+            reason=reject_reason,
+            db=db,
+        )
+
         db.commit()
         db.refresh(ticket)
 

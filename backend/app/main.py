@@ -13,6 +13,7 @@ from app.api.v1.sales import router as sales_router
 from app.api.v1.earnings import router as earnings_router
 from app.api.v1.license import router as license_router
 from app.api.v1.tickets import router as tickets_router
+from app.api.v1.notifications import router as notifications_router
 from app.core.config import settings, validate_security_secrets
 from app.core.exceptions import global_exception_handler
 from app.core.security import get_current_admin, get_current_user
@@ -47,12 +48,22 @@ app.include_router(sales_router, prefix="/api/v1")
 app.include_router(earnings_router, prefix="/api/v1")
 app.include_router(license_router, prefix="/api/v1")
 app.include_router(tickets_router, prefix="/api/v1")
+app.include_router(notifications_router, prefix="/api/v1")
 
 
 @app.on_event("startup")
 async def startup():
     # SEC-1: 生产环境启动校验密钥非默认值，dev 仅警告
     validate_security_secrets()
+    # Story 5.1: 启动定时结算调度器
+    from app.services.scheduler_service import start_scheduler
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    from app.services.scheduler_service import stop_scheduler
+    stop_scheduler()
 
 
 @app.get("/health")

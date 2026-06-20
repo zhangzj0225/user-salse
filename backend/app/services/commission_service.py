@@ -1,6 +1,7 @@
 import logging
 from decimal import Decimal
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -82,6 +83,15 @@ def record_commission(
             "business_id": business_id,
         },
         business_id=business_id,
+        db=db,
+    )
+
+    # Story 5.2: 通知用户佣金入账
+    from app.services.notification_service import NotificationService
+    NotificationService.notify_commission_credited(
+        user_id=user_id,
+        amount=str(amount),
+        commission_type=commission_type,
         db=db,
     )
 
@@ -212,15 +222,112 @@ class CommissionEngine:
             "source_user_id": recharger_user_id,  # 真实充值人 C
         }
 
-    # ── 长期奖励（Epic 5 实现） ──────────────────────────
+    # ── 长期奖励（Epic 5 Story 5.1） ─────────────────────
 
     def calculate_long_term_reward(
-        self, user_id: int, period: str
-    ) -> dict:
-        """计算长期奖励。Epic 5 Story 5.1 实现。"""
-        raise NotImplementedError(
-            "长期奖励在 Epic 5 Story 5.1 实现"
+        self, user_id: int, period: str, db: Session | None = None
+    ) -> list[CommissionRecord]:
+        """计算并记账长期奖励（团队奖金）。
+
+        对指定用户，统计其**直接下级**在上一结算周期的总佣金收入，
+        按用户自身角色的 team_bonus 比例记账。
+
+        规则：
+        - 代理(5%): 从所有直接下级（含经销商）的佣金中提取，但代理→经销商对
+          已由 133.2 元/笔 followup_reward 覆盖，故排除经销商下级。
+        - 经销商(4%): 从所有直接下级的佣金中提取。
+
+        幂等：business_id = "settle_{user_id}_{period}"
+
+        Args:
+            user_id: 被结算的用户 ID
+            period: 结算周期标识 (YYYYMM)
+            db: 数据库 session（若 None 则使用 self.db）
+
+        Returns:
+            新创建的 CommissionRecord 列表（已存在则跳过，返回空列表）
+        """
+        session = db or self.db
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            return []
+
+        # 仅代理/经销商有长期奖励
+        if user.role not in ("agent", "distributor"):
+            return []
+
+        # 查配置
+        config = self.get_config(user.role, "team_bonus")
+        if not config or config.reward_type != "percentage":
+            logger.warning("No team_bonus config for role=%s", user.role)
+            return []
+
+        ratio = Decimal(str(config.reward_value))
+        business_id = f"settle_{user_id}_{period}"
+
+        # 幂等检查
+        existing = (
+            session.query(CommissionRecord)
+            .filter(CommissionRecord.business_id == business_id)
+            .first()
         )
+        if existing:
+            logger.info("Long-term reward already settled: %s", business_id)
+            return []
+
+        # 查直接下级
+        children = (
+            session.query(User)
+            .filter(User.parent_id == user_id)
+            .all()
+        )
+        if not children:
+            return []
+
+        # 代理排除经销商下级（已由 followup_reward 覆盖）
+        if user.role == "agent":
+            children = [c for c in children if c.role != "distributor"]
+
+        if not children:
+            return []
+
+        # 聚合直接下级在上一周期的总佣金
+        child_ids = [c.id for c in children]
+        total_child_income = (
+            session.query(func.coalesce(func.sum(CommissionRecord.amount), 0))
+            .filter(
+                CommissionRecord.user_id.in_(child_ids),
+            )
+            .scalar()
+        )
+        total_child_income = Decimal(str(total_child_income))
+
+        if total_child_income <= 0:
+            return []
+
+        reward_amount = (total_child_income * ratio).quantize(Decimal("0.01"))
+
+        if reward_amount <= 0:
+            return []
+
+        record = record_commission(
+            user_id=user_id,
+            amount=reward_amount,
+            commission_type="team_bonus",
+            source_user_id=None,
+            business_id=business_id,
+            db=session,
+        )
+
+        if record:
+            logger.info(
+                "Long-term reward settled: user_id=%d period=%s children=%d "
+                "child_income=%s ratio=%s reward=%s",
+                user_id, period, len(child_ids),
+                total_child_income, ratio, reward_amount,
+            )
+            return [record]
+        return []
 
     # ── 集成方法：充值确认后处理 ─────────────────────────
 

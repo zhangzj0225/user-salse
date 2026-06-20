@@ -417,10 +417,11 @@ class TestCalculateFollowupReward:
 # ── AC3: calculate_long_term_reward ──────────────────────
 
 class TestCalculateLongTermReward:
-    def test_raises_not_implemented(self, db_session):
+    def test_returns_empty_for_nonexistent_user(self, db_session):
+        """长期奖励已实现 — 不存在的用户返回空列表。"""
         engine = CommissionEngine(db_session)
-        with pytest.raises(NotImplementedError):
-            engine.calculate_long_term_reward(user_id=1, period="2026-06")
+        result = engine.calculate_long_term_reward(user_id=99999, period="202606")
+        assert result == []
 
 
 # ── AC7: process_recharge ────────────────────────────────

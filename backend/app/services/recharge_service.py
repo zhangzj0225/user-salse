@@ -149,6 +149,15 @@ class RechargeService:
             db=db,
         )
 
+        # Story 5.2: 通知用户充值审核通过
+        from app.services.notification_service import NotificationService
+        NotificationService.notify_recharge_approved(
+            user_id=user.id,
+            amount=str(amount),
+            new_role=user.role,
+            db=db,
+        )
+
         db.commit()
         db.refresh(recharge)
         logger.info(

@@ -133,6 +133,14 @@ class MockAuthService(AuthService):
         ic.used_at = now
         record.verified = True
 
+        # Story 5.2: 通知上级有新下级注册
+        from app.services.notification_service import NotificationService
+        NotificationService.notify_subordinate_registered(
+            parent_id=ic.generator_id,
+            child_email=email,
+            db=db,
+        )
+
         try:
             db.commit()
         except IntegrityError as e:
