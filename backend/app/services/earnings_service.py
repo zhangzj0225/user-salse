@@ -29,6 +29,8 @@ def calculate_balance_summary(user_id: int, db: Session) -> tuple[Decimal, Decim
 
     返回: (total_commission, withdrawn_total, available_balance)
       - total_commission: 记账余额（所有佣金总和，毛额）
+        ⚠️ D4: 内部变量名 total_commission，API 响应字段名为 pending_balance
+        （见 EarningsSummary schema）。两者是同一个值，仅命名不同。
       - withdrawn_total:  已提现（paid 工单总和）
       - available_balance: 可用余额 = total_commission - pending 工单 - paid 工单
         （paid 工单即已提现，必须扣减，否则 approve 后余额回升导致双重支付）

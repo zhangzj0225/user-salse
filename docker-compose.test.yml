@@ -1,0 +1,20 @@
+# D8: MySQL 测试容器 — 验证行锁真实生效
+#
+# 用法:
+#   docker compose -f docker-compose.test.yml up -d
+#   TEST_DB_URL="mysql+pymysql://test:test@localhost:3307/user_salse_test" pytest tests/test_concurrent_mysql.py -v
+#   docker compose -f docker-compose.test.yml down
+
+services:
+  mysql-test:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: test
+      MYSQL_DATABASE: user_salse_test
+      MYSQL_USER: test
+      MYSQL_PASSWORD: test
+    ports:
+      - "3307:3306"
+    command: --innodb-isolation-level=READ-COMMITTED
+    tmpfs:
+      - /var/lib/mysql

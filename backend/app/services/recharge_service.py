@@ -72,6 +72,7 @@ class RechargeService:
             amount=amount,
             target_role=AMOUNT_ROLE_MAP[amount],
             status="pending",
+            pending_user_key=user_id,  # D5: DB 级防 TOCTOU
         )
         db.add(recharge)
         db.commit()
@@ -116,6 +117,7 @@ class RechargeService:
         recharge.status = "approved"
         recharge.reviewed_by = admin_id
         recharge.reviewed_at = datetime.now(timezone.utc)
+        recharge.pending_user_key = None  # D5: 释放 pending 锁
 
         # License 生成（stub）
         self._license_service.generate_for_recharge(
@@ -171,6 +173,7 @@ class RechargeService:
         recharge.reject_reason = reason
         recharge.reviewed_by = admin_id
         recharge.reviewed_at = datetime.now(timezone.utc)
+        recharge.pending_user_key = None  # D5: 释放 pending 锁
 
         AuditService.log(
             action="recharge_reject",
