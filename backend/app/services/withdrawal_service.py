@@ -151,6 +151,148 @@ class WithdrawalService:
             for t in tickets
         ]
 
+    def list_all_tickets(
+        self,
+        db: Session,
+        status: str | None = None,
+    ) -> list[dict]:
+        """管理员查看所有工单列表（含用户邮箱）。"""
+        query = db.query(Ticket)
+        if status:
+            if status not in ("pending", "paid", "rejected"):
+                raise ValueError("无效的工单状态")
+            query = query.filter(Ticket.status == status)
+
+        tickets = query.order_by(Ticket.created_at.desc()).all()
+
+        # 批量加载用户邮箱
+        user_ids = {t.user_id for t in tickets}
+        users = {}
+        if user_ids:
+            user_list = db.query(User).filter(User.id.in_(user_ids)).all()
+            users = {u.id: u.email for u in user_list}
+
+        return [
+            {
+                "id": t.id,
+                "user_id": t.user_id,
+                "user_email": users.get(t.user_id, ""),
+                "amount": str(t.amount),
+                "payment_method": t.payment_method,
+                "status": t.status,
+                "reject_reason": t.reject_reason,
+                "processed_by": t.processed_by,
+                "processed_at": t.processed_at,
+                "created_at": t.created_at,
+            }
+            for t in tickets
+        ]
+
+    def approve_ticket(
+        self,
+        ticket_id: int,
+        admin_id: int,
+        db: Session,
+    ) -> dict:
+        """管理员确认打款 — status → paid，冻结金额扣减（自然扣减，pending 变 paid 后不再冻结）。"""
+        # 行锁防并发
+        ticket = (
+            db.query(Ticket)
+            .filter(Ticket.id == ticket_id)
+            .with_for_update()
+            .first()
+        )
+        if not ticket:
+            raise ValueError("工单不存在")
+
+        if ticket.status != "pending":
+            raise ValueError("工单已处理")
+
+        old_status = ticket.status
+        ticket.status = "paid"
+        ticket.processed_by = admin_id
+        ticket.processed_at = datetime.now(timezone.utc)
+
+        # 审计日志
+        audit = AuditLog(
+            action="ticket_approve",
+            target_type="ticket",
+            target_id=ticket.id,
+            operator_type="admin",
+            operator_id=admin_id,
+            old_value={"status": old_status},
+            new_value={"status": "paid"},
+        )
+        db.add(audit)
+        db.commit()
+        db.refresh(ticket)
+
+        logger.info(
+            "Ticket approved: ticket_id=%d admin_id=%d", ticket_id, admin_id,
+        )
+
+        return {
+            "id": ticket.id,
+            "status": ticket.status,
+            "processed_by": ticket.processed_by,
+            "processed_at": ticket.processed_at,
+            "reject_reason": ticket.reject_reason,
+        }
+
+    def reject_ticket(
+        self,
+        ticket_id: int,
+        admin_id: int,
+        reject_reason: str,
+        db: Session,
+    ) -> dict:
+        """管理员拒绝工单 — status → rejected，金额解冻退回（pending 变 rejected 后不再冻结）。"""
+        # 行锁防并发
+        ticket = (
+            db.query(Ticket)
+            .filter(Ticket.id == ticket_id)
+            .with_for_update()
+            .first()
+        )
+        if not ticket:
+            raise ValueError("工单不存在")
+
+        if ticket.status != "pending":
+            raise ValueError("工单已处理")
+
+        old_status = ticket.status
+        ticket.status = "rejected"
+        ticket.reject_reason = reject_reason
+        ticket.processed_by = admin_id
+        ticket.processed_at = datetime.now(timezone.utc)
+
+        # 审计日志
+        audit = AuditLog(
+            action="ticket_reject",
+            target_type="ticket",
+            target_id=ticket.id,
+            operator_type="admin",
+            operator_id=admin_id,
+            old_value={"status": old_status},
+            new_value={"status": "rejected", "reject_reason": reject_reason},
+        )
+        db.add(audit)
+        db.commit()
+        db.refresh(ticket)
+
+        logger.info(
+            "Ticket rejected: ticket_id=%d admin_id=%d reason=%s",
+            ticket_id, admin_id, reject_reason,
+        )
+
+        return {
+            "id": ticket.id,
+            "status": ticket.status,
+            "processed_by": ticket.processed_by,
+            "processed_at": ticket.processed_at,
+            "reject_reason": ticket.reject_reason,
+        }
+
 
 def get_withdrawal_service() -> WithdrawalService:
     return WithdrawalService()
