@@ -67,13 +67,13 @@ async def run():
         print("[1/6] Opening login page...")
         await pg.goto(f"{UI}/login")
         await pg.wait_for_timeout(2000)
-        os.makedirs("d:/user-salse/e2e_output", exist_ok=True)
-        await pg.screenshot(path="d:/user-salse/e2e_output/v_01_login.png")
+        os.makedirs("D:/workspace/user-salse/e2e_output", exist_ok=True)
+        await pg.screenshot(path="D:/workspace/user-salse/e2e_output/v_01_login.png")
         
         print("[2/6] Switching to Register tab...")
         await pg.click('[data-node-key="register"]')
         await pg.wait_for_timeout(1000)
-        await pg.screenshot(path="d:/user-salse/e2e_output/v_02_register.png")
+        await pg.screenshot(path="D:/workspace/user-salse/e2e_output/v_02_register.png")
         
         print("[3/6] Filling email...")
         await pg.locator("input[placeholder*='邮箱']:visible").fill(test_email)
@@ -87,12 +87,12 @@ async def run():
         await pg.locator("input[placeholder*='验证码']:visible").fill(MOCK)
         await pg.locator("input[placeholder*='邀请码']:visible").fill(bci)
         await pg.wait_for_timeout(1000)
-        await pg.screenshot(path="d:/user-salse/e2e_output/v_03_filled.png")
+        await pg.screenshot(path="D:/workspace/user-salse/e2e_output/v_03_filled.png")
         
         print("[6/6] Clicking Register...")
         await pg.locator("button[type='submit']:visible").click()
         await pg.wait_for_timeout(4000)
-        await pg.screenshot(path="d:/user-salse/e2e_output/v_04_result.png")
+        await pg.screenshot(path="D:/workspace/user-salse/e2e_output/v_04_result.png")
         
         if "/login" not in pg.url:
             print("\n*** REGISTRATION SUCCESSFUL! ***")
@@ -106,4 +106,4 @@ async def run():
         await br.close()
 
 asyncio.run(run())
-print("\nDone! Screenshots saved to d:/user-salse/e2e_output/v_*.png")
+print("\nDone! Screenshots saved to D:/workspace/user-salse/e2e_output/v_*.png")

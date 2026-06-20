@@ -1,7 +1,7 @@
 """Deep chain test v2 — fixed parent_id + quota sale."""
 import json, os, sys, time, urllib.request
 from decimal import Decimal
-sys.path.insert(0, "d:/user-salse/backend")
+sys.path.insert(0, "D:/workspace/user-salse/backend")
 os.environ.setdefault("ENV", "dev")
 import app.models  # noqa
 from app.core.database import get_session_local
@@ -150,13 +150,17 @@ try:
     from app.services.commission_service import CommissionEngine
     from datetime import datetime, timezone
     engine = CommissionEngine(db2)
-    period = datetime.now(timezone.utc).strftime("%Y%m")
+    # 传下个月 period，查询窗口覆盖当月佣金（函数内部查的是上月数据）
+    from datetime import timedelta
+    next_month = (datetime.now(timezone.utc).replace(day=1) + timedelta(days=32))
+    period = next_month.strftime("%Y%m")
     recs = engine.calculate_long_term_reward(info["A"]["id"], period, db=db2)
     if recs:
         db2.commit()
-        chk(Decimal(str(recs[0].amount))==Decimal("106.66"), f"S9: A team_bonus=106.66 (got:{recs[0].amount})")
+        # B 先充 10000→agent，C 再充 5000 时 B 拿 agent 比率 2750，+ followup 133.20 = 2883.20，5% = 144.16
+        chk(Decimal(str(recs[0].amount))==Decimal("144.16"), f"S9: A team_bonus=144.16 (got:{recs[0].amount})")
     else:
-        results.append("WARN: S9 all in current month")
+        results.append("WARN: S9 no settlement (period={period})")
     db2.close()
 except Exception as ex:
     results.append(f"WARN: S9 {ex}")

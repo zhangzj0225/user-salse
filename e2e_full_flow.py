@@ -109,16 +109,16 @@ async def pw_tests():
         await pg.locator("input[placeholder*='邀请码']:visible").fill(bci4)
         await pg.locator("button[type='submit']:visible").click()
         await pg.wait_for_timeout(3000)
-        os.makedirs("d:/user-salse/e2e_output", exist_ok=True)
+        os.makedirs("D:/workspace/user-salse/e2e_output", exist_ok=True)
         if "/login" not in pg.url:
             chk(True, "S4a: Browser registration succeeded")
-            await pg.screenshot(path="d:/user-salse/e2e_output/s4_register.png")
+            await pg.screenshot(path="D:/workspace/user-salse/e2e_output/s4_register.png")
             f = login(ferm); ftok = f["data"]["token"]
             rid=rech(5000,ftok)["data"]["id"]; approve_r(rid,at)
             chk(get_me(ftok)["data"]["role"]=="distributor", "S4b: Fission user role=distributor")
         else:
             chk(False, f"S4: Registration failed ({pg.url})")
-            await pg.screenshot(path="d:/user-salse/e2e_output/s4_fail.png")
+            await pg.screenshot(path="D:/workspace/user-salse/e2e_output/s4_fail.png")
 
         # S12: Screenshots as B
         bu = get_me(btok)["data"]
@@ -126,7 +126,7 @@ async def pw_tests():
         await pg.evaluate(f"localStorage.setItem('auth-storage',JSON.stringify({{state:{{token:'{btok}',user:{json.dumps(bu)}}},version:0}}))")
         for path,name in [("/","home"),("/earnings","earnings"),("/team","team"),("/recharge","recharge"),("/withdrawal","withdrawal"),("/sales","sales"),("/profile","profile")]:
             await pg.goto(f"{UI}{path}"); await pg.wait_for_timeout(1500)
-            await pg.screenshot(path=f"d:/user-salse/e2e_output/s12_{name}.png")
+            await pg.screenshot(path=f"D:/workspace/user-salse/e2e_output/s12_{name}.png")
         results.append("PASS: S12 7 screenshots saved")
         print("  S12: 7 screenshots saved")
         await br.close()
@@ -179,4 +179,4 @@ failed=sum(1 for r in results if "FAIL" in r)
 warn=sum(1 for r in results if "WARN" in r)
 for r in results: print(f"  {r}")
 print(f"\n  PASS={passed} FAIL={failed} WARN={warn} TOTAL={len(results)}")
-print("  Screenshots: d:/user-salse/e2e_output/")
+print("  Screenshots: D:/workspace/user-salse/e2e_output/")

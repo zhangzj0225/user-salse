@@ -4,7 +4,7 @@ from playwright.async_api import async_playwright
 
 BASE = "http://127.0.0.1:8000"; UI = "http://localhost:5173"; MOCK = "123456"
 TS = str(int(time.time()))[-4:]
-SC = "d:/user-salse/e2e_output"
+SC = "D:/workspace/user-salse/e2e_output"
 os.makedirs(SC, exist_ok=True)
 
 def api(m, p, d=None, t=None):
@@ -258,7 +258,7 @@ async def main():
         print(f"\n{'='*60}")
         print("ALL VISIBLE TESTS COMPLETE")
         print(f"{'='*60}")
-        print("Screenshots in: d:/user-salse/e2e_output/")
+        print("Screenshots in: D:/workspace/user-salse/e2e_output/")
         print("Test cases covered:")
         print("  TC1: Agent login -> home + earnings + team (via browser)")
         print("  TC2: Distributor login -> home + sales + team + earnings + withdrawal (via browser)")
