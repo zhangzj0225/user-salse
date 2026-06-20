@@ -27,6 +27,17 @@ AMOUNT_QUOTA_MAP = {
     10000: 22,
 }
 
+# 角色等级（用于 BH-3：充值后取已购最高档，而非覆盖式赋值，避免降级）
+# PRD「各充值独立不互斥」—— 充 10000 后再充 888 不应把代理降级为会员
+ROLE_LEVEL = {"user": 0, "member": 1, "distributor": 2, "agent": 3}
+
+
+def _higher_role(current: str, candidate: str) -> str:
+    """返回两个角色中等级更高者，保证充值只升不降。"""
+    if ROLE_LEVEL.get(candidate, 0) > ROLE_LEVEL.get(current, 0):
+        return candidate
+    return current
+
 
 class RechargeService:
     """充值申请、审核服务。"""
@@ -45,6 +56,16 @@ class RechargeService:
         """创建充值申请。"""
         if amount not in VALID_RECHARGE_AMOUNTS:
             raise ValueError(f"充值金额必须为 {VALID_RECHARGE_AMOUNTS} 之一")
+
+        # BH-5: 同用户已有 pending 充值时不允许新建，防止多笔 pending 并发审批
+        # 触发 lost update（F5）与角色非确定性。
+        existing_pending = (
+            db.query(Recharge)
+            .filter(Recharge.user_id == user_id, Recharge.status == "pending")
+            .first()
+        )
+        if existing_pending:
+            raise ValueError("已有待审核的充值申请，请等待审核完成")
 
         recharge = Recharge(
             user_id=user_id,
@@ -71,7 +92,13 @@ class RechargeService:
         if recharge.status != "pending":
             raise ValueError("充值已处理")
 
-        user = db.query(User).filter(User.id == recharge.user_id).first()
+        # F5: 锁 User 行，防止并发审批同一用户多笔充值导致 role/quota lost update
+        user = (
+            db.query(User)
+            .filter(User.id == recharge.user_id)
+            .with_for_update()
+            .first()
+        )
         if not user:
             raise ValueError("充值用户不存在")
 
@@ -79,8 +106,9 @@ class RechargeService:
         old_role = user.role
         old_quota = user.account_quota
 
-        # 角色变更（覆盖）
-        user.role = AMOUNT_ROLE_MAP[amount]
+        # BH-3: 角色取已购最高档（只升不降），非覆盖式赋值。
+        # PRD「各充值独立不互斥」—— agent 再充 888 不应降级为 member 丧失代理身份与额度。
+        user.role = _higher_role(user.role, AMOUNT_ROLE_MAP[amount])
         # 额度累加
         user.account_quota += AMOUNT_QUOTA_MAP[amount]
 

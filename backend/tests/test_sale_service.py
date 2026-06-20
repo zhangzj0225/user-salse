@@ -65,7 +65,9 @@ class TestSellAccount:
         assert recharge.amount == Decimal("888.00")
         assert recharge.status == "approved"
         assert recharge.target_role == "member"
-        assert recharge.reviewed_by == seller.id  # N2: seller_id
+        # F2: sale 流程无管理员审核，reviewed_by 留 null（FK 指向 admin_users，
+        # 写 seller_id 在生产 MySQL 会 IntegrityError）
+        assert recharge.reviewed_by is None
 
         # 验证审计日志
         log = db_session.query(AuditLog).filter(AuditLog.action == "quota_sale").first()

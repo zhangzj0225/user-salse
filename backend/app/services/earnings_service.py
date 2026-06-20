@@ -24,6 +24,37 @@ TYPE_DISPLAY_MAP = {
 VALID_FILTER_TYPES = set(TYPE_DISPLAY_MAP.keys())
 
 
+def calculate_balance_summary(user_id: int, db: Session) -> tuple[Decimal, Decimal, Decimal]:
+    """计算用户余额三元组，供 earnings / withdrawal 复用，避免两处公式漂移。
+
+    返回: (total_commission, withdrawn_total, available_balance)
+      - total_commission: 记账余额（所有佣金总和，毛额）
+      - withdrawn_total:  已提现（paid 工单总和）
+      - available_balance: 可用余额 = total_commission - pending 工单 - paid 工单
+        （paid 工单即已提现，必须扣减，否则 approve 后余额回升导致双重支付）
+
+    可用余额等价于: total_commission - sum(status IN ('pending','paid') 工单)
+    """
+    total_result = db.query(
+        func.coalesce(func.sum(CommissionRecord.amount), 0)
+    ).filter(CommissionRecord.user_id == user_id).scalar()
+    total_commission = Decimal(total_result)
+
+    pending_result = db.query(
+        func.coalesce(func.sum(Ticket.amount), 0)
+    ).filter(Ticket.user_id == user_id, Ticket.status == "pending").scalar()
+    pending = Decimal(pending_result)
+
+    paid_result = db.query(
+        func.coalesce(func.sum(Ticket.amount), 0)
+    ).filter(Ticket.user_id == user_id, Ticket.status == "paid").scalar()
+    withdrawn_total = Decimal(paid_result)
+
+    # 可用 = 总佣金 - pending 冻结 - paid 已提现
+    available_balance = total_commission - pending - withdrawn_total
+    return total_commission, withdrawn_total, available_balance
+
+
 class EarningsService:
     """收益看板查询服务。"""
 
@@ -74,29 +105,8 @@ class EarningsService:
             .all()
         )
 
-        # 汇总：记账余额 = 所有佣金总和（SQL 聚合）
-        pending_result = db.query(
-            func.coalesce(func.sum(CommissionRecord.amount), 0)
-        ).filter(CommissionRecord.user_id == user_id).scalar()
-        pending = Decimal(pending_result)
-
-        # 已冻结 = pending 工单总额（SQL 聚合）
-        frozen_result = db.query(
-            func.coalesce(func.sum(Ticket.amount), 0)
-        ).filter(
-            Ticket.user_id == user_id, Ticket.status == "pending"
-        ).scalar()
-        frozen = Decimal(frozen_result)
-
-        # 已提现 = paid 工单总额
-        withdrawn_result = db.query(
-            func.coalesce(func.sum(Ticket.amount), 0)
-        ).filter(
-            Ticket.user_id == user_id, Ticket.status == "paid"
-        ).scalar()
-        withdrawn = Decimal(withdrawn_result)
-
-        available = pending - frozen  # 可用余额 = 记账余额 - 冻结金额
+        # 汇总：记账余额 / 已提现 / 可用余额（复用公共函数，避免与 withdrawal 公式漂移）
+        pending_balance, withdrawn, available = calculate_balance_summary(user_id, db)
 
         # 构建 source_email
         source_ids = {r.source_user_id for r in records if r.source_user_id}
@@ -111,7 +121,7 @@ class EarningsService:
 
         return {
             "summary": {
-                "pending_balance": str(pending),
+                "pending_balance": str(pending_balance),
                 "withdrawn_total": str(withdrawn),
                 "available_balance": str(available),
             },

@@ -174,3 +174,63 @@ class TestListUserTickets:
         tickets = service.list_user_tickets(user.id, db_session)
         assert tickets[0]["amount"] == "200"
         assert tickets[1]["amount"] == "100"
+
+
+class TestNoDoubleSpending:
+    """F1 回归：提现 approve 后可用余额不得回升，禁止对同一笔佣金重复提现。"""
+
+    def _make_admin(self, db):
+        from app.models.admin_user import AdminUser
+        admin = AdminUser(username="admin", password_hash="hash", role="super_admin")
+        db.add(admin)
+        db.flush()
+        return admin
+
+    def test_available_balance_does_not_recover_after_approve(self, db_session):
+        """佣金 500 → 提现 500（可用 0）→ approve → 可用仍为 0，不得回升到 500。"""
+        user = _make_user(db_session)
+        _add_commission(db_session, user.id, "500.00", "b1")
+        admin = self._make_admin(db_session)
+
+        service = WithdrawalService()
+        # 提现 500，可用 500-500=0
+        service.create_ticket(user.id, "500.00", "支付宝", db_session)
+        assert service._get_available_balance(user.id, db_session) == Decimal("0")
+
+        # approve → paid。修复前可用余额会回升到 500（双重支付），修复后仍为 0
+        ticket = db_session.query(Ticket).filter(Ticket.user_id == user.id).first()
+        service.approve_ticket(ticket.id, admin.id, db_session)
+        assert service._get_available_balance(user.id, db_session) == Decimal("0")
+
+    def test_cannot_withdraw_same_commission_twice(self, db_session):
+        """佣金 500 → 提现并 approve 500 → 再次提现 500 必须被拒（超额）。"""
+        user = _make_user(db_session)
+        _add_commission(db_session, user.id, "500.00", "b1")
+        admin = self._make_admin(db_session)
+
+        service = WithdrawalService()
+        service.create_ticket(user.id, "500.00", "支付宝", db_session)
+        ticket = db_session.query(Ticket).filter(Ticket.user_id == user.id).first()
+        service.approve_ticket(ticket.id, admin.id, db_session)
+
+        # 已提现 500，可用余额 0，再次提现 500 必须失败
+        with pytest.raises(ValueError, match="超过可用余额"):
+            service.create_ticket(user.id, "500.00", "支付宝", db_session)
+
+    def test_partial_withdraw_then_approve_remaining_correct(self, db_session):
+        """佣金 1000 → 提现 400 并 approve → 可用应为 600（1000-400），可再提 600。"""
+        user = _make_user(db_session)
+        _add_commission(db_session, user.id, "1000.00", "b1")
+        admin = self._make_admin(db_session)
+
+        service = WithdrawalService()
+        service.create_ticket(user.id, "400.00", "支付宝", db_session)
+        ticket = db_session.query(Ticket).filter(Ticket.user_id == user.id).first()
+        service.approve_ticket(ticket.id, admin.id, db_session)
+
+        # 1000 - 400(已提现) = 600 可用
+        assert service._get_available_balance(user.id, db_session) == Decimal("600.00")
+
+        # 可再提 600
+        result = service.create_ticket(user.id, "600.00", "支付宝", db_session)
+        assert result["available_balance"] == "0.00"

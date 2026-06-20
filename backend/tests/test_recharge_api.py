@@ -49,10 +49,13 @@ class TestListRechargesAPI:
 
     def test_list_returns_own(self, client, db_session):
         user = User(email="list_own@example.com", role="user", status="active")
-        db_session.add(user)
+        other = User(email="other@example.com", role="user", status="active")
+        db_session.add_all([user, other])
         db_session.commit()
 
         token = create_access_token(subject=user.id, role="user", token_type="user")
+        other_token = create_access_token(subject=other.id, role="user", token_type="user")
+        # BH-5: 同用户只能有一笔 pending，故用两个用户各一笔来验证"只返回自己的"
         client.post(
             "/api/v1/recharges",
             headers={"Authorization": f"Bearer {token}"},
@@ -60,7 +63,7 @@ class TestListRechargesAPI:
         )
         client.post(
             "/api/v1/recharges",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {other_token}"},
             json={"amount": 5000},
         )
 
@@ -70,8 +73,9 @@ class TestListRechargesAPI:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["data"]) == 2
-        assert data["total"] == 2
+        assert len(data["data"]) == 1
+        assert data["total"] == 1
+        assert data["data"][0]["user_id"] == user.id
 
 
 class TestAdminRechargeAPI:
@@ -120,25 +124,27 @@ class TestAdminRechargeAPI:
         admin_token = self._make_admin_token(db_session)
         user_token = self._make_user_token(db_session)
 
-        # 创建充值
+        # BH-5: 同用户不能同时多笔 pending，先建第一笔并 approve，再建第二笔
         resp1 = client.post(
             "/api/v1/recharges",
             headers={"Authorization": f"Bearer {user_token}"},
             json={"amount": 888},
         )
-        resp2 = client.post(
-            "/api/v1/recharges",
-            headers={"Authorization": f"Bearer {user_token}"},
-            json={"amount": 5000},
-        )
         recharge1_id = resp1.json()["data"]["id"]
-        recharge2_id = resp2.json()["data"]["id"]
 
         # 批准第一个充值
         client.post(
             f"/api/v1/admin/recharges/{recharge1_id}/approve",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
+
+        # 第一笔 approved 后才能建第二笔 pending
+        resp2 = client.post(
+            "/api/v1/recharges",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={"amount": 5000},
+        )
+        recharge2_id = resp2.json()["data"]["id"]
 
         # 筛选 pending — 只返回第二个
         resp_pending = client.get(

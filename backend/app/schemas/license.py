@@ -16,6 +16,8 @@ class LicenseInfo(BaseModel):
     expires_at: Optional[datetime] = None
     created_at: datetime
 
+    model_config = {"from_attributes": True}
+
 
 class VerifyLicenseRequest(BaseModel):
     """License 验证请求（舆情系统调用）。"""

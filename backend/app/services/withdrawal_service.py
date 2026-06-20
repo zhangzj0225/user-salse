@@ -4,13 +4,12 @@ import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
-from app.models.commission_record import CommissionRecord
 from app.models.ticket import Ticket
 from app.models.user import User
+from app.services.earnings_service import calculate_balance_summary
 
 logger = logging.getLogger(__name__)
 
@@ -21,22 +20,13 @@ class WithdrawalService:
     """提现工单服务。"""
 
     def _get_available_balance(self, user_id: int, db: Session) -> Decimal:
-        """计算可用余额 = 记账余额 - 已冻结金额（pending 工单总额）。"""
-        # 记账余额 = 所有佣金总和（SQL 聚合）
-        pending_result = db.query(
-            func.coalesce(func.sum(CommissionRecord.amount), 0)
-        ).filter(CommissionRecord.user_id == user_id).scalar()
-        pending_balance = Decimal(pending_result)
+        """计算可用余额 = 总佣金 - pending 工单 - paid 工单。
 
-        # 已冻结 = pending 工单总额（SQL 聚合）
-        frozen_result = db.query(
-            func.coalesce(func.sum(Ticket.amount), 0)
-        ).filter(
-            Ticket.user_id == user_id, Ticket.status == "pending"
-        ).scalar()
-        frozen_amount = Decimal(frozen_result)
-
-        return pending_balance - frozen_amount
+        paid 工单即已提现金额，必须扣减，否则 approve 后可用余额回升导致双重支付。
+        复用 earnings_service.calculate_balance_summary，避免两处公式漂移。
+        """
+        _, _, available = calculate_balance_summary(user_id, db)
+        return available
 
     def create_ticket(
         self,
@@ -56,10 +46,6 @@ class WithdrawalService:
 
         返回: {"ticket_id", "amount", "status", "available_balance"}
         """
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise ValueError("用户不存在")
-
         # 1. 校验金额格式
         try:
             amount_decimal = Decimal(amount)
@@ -73,11 +59,17 @@ class WithdrawalService:
         if amount_decimal < MIN_WITHDRAWAL_AMOUNT:
             raise ValueError(f"提现金额不能低于最低提现额 {MIN_WITHDRAWAL_AMOUNT} 元")
 
-        # 3. 校验可用余额 — 行锁防并发超额
-        # 锁定该用户的 pending 工单行，防止并发提现同时通过余额检查
-        db.query(Ticket).filter(
-            Ticket.user_id == user_id, Ticket.status == "pending"
-        ).with_for_update().all()
+        # 3. 校验可用余额 — 锁 User 行防并发超额提现
+        # F6: 原先锁 pending 工单集合，用户无 pending 工单时锁空集，靠 gap lock 兜底
+        # （无复合索引、隔离级别降级即失效）。改为锁 User 行，串行化同一用户的并发提现。
+        user = (
+            db.query(User)
+            .filter(User.id == user_id)
+            .with_for_update()
+            .first()
+        )
+        if not user:
+            raise ValueError("用户不存在")
 
         available = self._get_available_balance(user_id, db)
         if amount_decimal > available:
@@ -194,7 +186,11 @@ class WithdrawalService:
         admin_id: int,
         db: Session,
     ) -> dict:
-        """管理员确认打款 — status → paid，冻结金额扣减（自然扣减，pending 变 paid 后不再冻结）。"""
+        """管理员确认打款 — status → paid。
+
+        打款后该工单进入 paid 状态，可用余额公式（calculate_balance_summary）
+        会扣减 paid 工单总额，故已提现金额不会回流到可用余额，防止双重支付。
+        """
         # 行锁防并发
         ticket = (
             db.query(Ticket)

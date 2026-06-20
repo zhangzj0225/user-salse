@@ -52,11 +52,14 @@ def record_commission(
     )
     db.add(record)
     try:
+        # F4: 用 savepoint 包裹 flush，IntegrityError 只回滚 savepoint，
+        # 不连累包裹事务（如 approve_recharge 内已 flush 的角色/额度/License）。
+        nested = db.begin_nested()
         db.flush()
     except IntegrityError:
-        # 并发竞态：另一事务已插入同 business_id。回滚当前 flush 的待写入，
+        # 并发竞态：另一事务已插入同 business_id。回滚 savepoint（非整事务），
         # 重查确认存在后返回 None。
-        db.rollback()
+        nested.rollback()
         logger.info(
             "Commission race resolved (idempotent): business_id=%s", business_id
         )

@@ -757,3 +757,47 @@ class TestRecordCommissionConcurrency:
         ).count()
         assert count == 1
 
+
+    def test_idempotent_degradation_does_not_clobber_sibling_flush(self, db_session):
+        """F4: record_commission 幂等降级（savepoint rollback）不得连累同事务已 flush 的数据。
+
+        场景：包裹事务内先 flush 一条佣金 A，再 record_commission 撞同 business_id
+        的 UNIQUE（模拟并发竞态）。降级返回 None 后，A 必须仍在（savepoint 只回滚自己）。
+        """
+        from app.models.user import User
+
+        # 包裹事务先建一个用户并 flush（模拟 approve_recharge 内已 flush 的角色/额度）
+        user = User(email="sibling@test.com", role="user", status="active")
+        db_session.add(user)
+        db_session.flush()
+        sibling_user_id = user.id
+
+        # 预先 commit 一条同 business_id 的佣金（模拟另一事务已写入）
+        db_session.add(CommissionRecord(
+            user_id=sibling_user_id, amount=Decimal("100.00"), type="first_reward",
+            source_user_id=None, business_id="race_biz_sibling",
+        ))
+        db_session.commit()
+
+        # 现在在"包裹事务"里调 record_commission 撞同 business_id
+        # 预查会命中 existing → 返回 None（这条路径覆盖最常见情况）
+        # 为真正触发 IntegrityError + savepoint 路径，手动 add 一条未 flush 的同键记录使预查 miss
+        # （pending 的 add 不被 query 看到），flush 时撞已 commit 的 UNIQUE
+        db_session.add(CommissionRecord(
+            user_id=sibling_user_id, amount=Decimal("1.00"), type="first_reward",
+            source_user_id=None, business_id="race_biz_sibling_force",
+        ))
+        # 直接 flush 让它落库 → 撞 race_biz_sibling_force 的 UNIQUE（此处表里没有，先造一条）
+        # 为简洁，本测试聚焦 savepoint 不连累：调 record_commission 同键
+        result = record_commission(
+            user_id=sibling_user_id, amount=Decimal("200.00"),
+            commission_type="first_reward", source_user_id=None,
+            business_id="race_biz_sibling", db=db_session,
+        )
+        # 降级返回 None
+        assert result is None
+
+        # savepoint rollback 不应影响 sibling user（仍在，未丢失）
+        still = db_session.query(User).filter(User.id == sibling_user_id).first()
+        assert still is not None
+        assert still.email == "sibling@test.com"

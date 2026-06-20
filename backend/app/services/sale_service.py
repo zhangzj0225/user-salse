@@ -89,12 +89,15 @@ class SaleService:
             db.flush()
 
             # 6. 创建 Recharge 记录（approved 状态，供 sales_records 查询）
+            # F2: reviewed_by 不写 seller_id —— 该列 FK 指向 admin_users.id，
+            # 写 User.id 在生产 MySQL 会 IntegrityError。sale 流程无管理员审核，
+            # reviewed_by 留 null。销售者关系由 parent_id + 审计日志 business_id=sale_{id} 体现。
             recharge = Recharge(
                 user_id=customer.id,
                 amount=SALE_AMOUNT,
                 target_role=SALE_TARGET_ROLE,
                 status="approved",
-                reviewed_by=seller_id,  # N2: 标记为销售者 ID（区别于 admin 审核）
+                reviewed_by=None,
                 reviewed_at=datetime.now(timezone.utc),
             )
             db.add(recharge)
