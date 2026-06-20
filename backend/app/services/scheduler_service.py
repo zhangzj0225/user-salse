@@ -28,35 +28,41 @@ def run_settlement() -> None:
     period = datetime.now(timezone.utc).strftime("%Y%m")
     logger.info("Starting long-term reward settlement for period %s", period)
 
-    db: Session = SessionLocal()
-    try:
-        engine = CommissionEngine(db)
+    # S5: 逐用户独立事务，单用户失败不影响其他用户
+    session_factory = get_session_local()
 
-        # 遍历所有代理和经销商
+    # 先查询所有需要结算的用户
+    db: Session = session_factory()
+    try:
         users = (
-            db.query(User)
+            db.query(User.id)
             .filter(User.role.in_(("agent", "distributor")))
             .filter(User.status == "active")
             .all()
         )
-
-        total_settled = 0
-        for user in users:
-            records = engine.calculate_long_term_reward(user.id, period, db=db)
-            if records:
-                total_settled += 1
-
-        db.commit()
-        logger.info(
-            "Settlement complete: period=%s users_processed=%d settled=%d",
-            period, len(users), total_settled,
-        )
-    except Exception:
-        db.rollback()
-        logger.exception("Settlement failed for period %s", period)
-        raise
+        user_ids = [u[0] for u in users]
     finally:
         db.close()
+
+    total_settled = 0
+    for user_id in user_ids:
+        user_db: Session = session_factory()
+        try:
+            engine = CommissionEngine(user_db)
+            records = engine.calculate_long_term_reward(user_id, period, db=user_db)
+            if records:
+                total_settled += 1
+            user_db.commit()
+        except Exception:
+            user_db.rollback()
+            logger.exception("Settlement failed for user_id=%d period=%s", user_id, period)
+        finally:
+            user_db.close()
+
+    logger.info(
+        "Settlement complete: period=%s users_processed=%d settled=%d",
+        period, len(user_ids), total_settled,
+    )
 
 
 def start_scheduler() -> None:

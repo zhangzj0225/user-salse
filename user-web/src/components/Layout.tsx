@@ -21,10 +21,10 @@ const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
 const roleLabelMap: Record<string, string> = {
-  admin: "管理员",
+  user: "普通用户",
+  member: "888会员",
+  distributor: "经销商",
   agent: "代理",
-  distributor: "分销商",
-  customer: "客户",
 };
 
 export default function AppLayout() {

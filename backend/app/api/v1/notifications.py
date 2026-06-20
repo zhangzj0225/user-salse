@@ -35,4 +35,5 @@ def mark_notification_read(
     success = NotificationService.mark_as_read(notification_id, current_user.id, db)
     if not success:
         return {"success": False, "message": "通知不存在"}
+    db.commit()
     return {"success": True}

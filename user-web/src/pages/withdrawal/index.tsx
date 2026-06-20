@@ -33,16 +33,14 @@ const paymentMethodLabelMap: Record<string, string> = {
 
 const statusColorMap: Record<string, string> = {
   pending: "orange",
-  approved: "green",
+  paid: "green",
   rejected: "red",
-  completed: "green",
 };
 
 const statusLabelMap: Record<string, string> = {
   pending: "待审核",
-  approved: "已通过",
+  paid: "已打款",
   rejected: "已拒绝",
-  completed: "已完成",
 };
 
 export default function WithdrawalPage() {
@@ -57,7 +55,7 @@ export default function WithdrawalPage() {
 
   const { data: ticketsData, isLoading: ticketsLoading } = useQuery({
     queryKey: ["tickets", "pending"],
-    queryFn: () => ticketApi.list({ status: "pending", limit: 50, offset: 0 }),
+    queryFn: () => ticketApi.list({ limit: 50, offset: 0 }),
   });
 
   const createMutation = useMutation({

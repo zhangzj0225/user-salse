@@ -12,16 +12,14 @@ const amountOptions: { value: RechargeAmount; label: string }[] = [
 
 const statusColorMap: Record<string, string> = {
   pending: "orange",
-  paid: "green",
-  failed: "red",
-  completed: "green",
+  approved: "green",
+  rejected: "red",
 };
 
 const statusLabelMap: Record<string, string> = {
-  pending: "待支付",
-  paid: "已支付",
-  failed: "失败",
-  completed: "已完成",
+  pending: "待审核",
+  approved: "已通过",
+  rejected: "已拒绝",
 };
 
 export default function RechargePage() {

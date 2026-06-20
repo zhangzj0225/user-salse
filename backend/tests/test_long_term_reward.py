@@ -1,4 +1,4 @@
-"""Tests for Story 5.1 长期奖励定时结算。"""
+"""Tests for Story 5.1 long-term reward settlement."""
 
 from decimal import Decimal
 
@@ -25,10 +25,10 @@ def _add_commission(db, user_id, amount, business_id):
 
 
 class TestCalculateLongTermReward:
-    """长期奖励计算测试。"""
+    """Long-term reward calculation tests."""
 
     def test_agent_gets_5_percent(self, db_session, seed_commission_configs):
-        """代理获得直接下级总佣金的 5%。"""
+        """Agent gets 5% of direct subordinates' total commission."""
         agent = _make_user(db_session, "agent@example.com", "agent")
         child1 = _make_user(db_session, "c1@example.com", "member", parent_id=agent.id)
         child2 = _make_user(db_session, "c2@example.com", "member", parent_id=agent.id)
@@ -37,24 +37,25 @@ class TestCalculateLongTermReward:
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(agent.id, "202606", db=db_session)
+        # period 202607 -> previous month = June 2026 (current month when records created)
+        records = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
         db_session.commit()
 
         assert len(records) == 1
         # (1000 + 2000) * 0.05 = 150.00
         assert records[0].amount == Decimal("150.00")
         assert records[0].type == "team_bonus"
-        assert records[0].business_id == "settle_{}_202606".format(agent.id)
+        assert records[0].business_id == "settle_{}_202607".format(agent.id)
 
     def test_distributor_gets_4_percent(self, db_session, seed_commission_configs):
-        """经销商获得直接下级总佣金的 4%。"""
+        """Distributor gets 4% of direct subordinates' total commission."""
         dist = _make_user(db_session, "dist@example.com", "distributor")
         child1 = _make_user(db_session, "c1@example.com", "member", parent_id=dist.id)
         _add_commission(db_session, child1.id, 1000, "t1")
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(dist.id, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(dist.id, "202607", db=db_session)
         db_session.commit()
 
         assert len(records) == 1
@@ -62,7 +63,7 @@ class TestCalculateLongTermReward:
         assert records[0].amount == Decimal("40.00")
 
     def test_agent_excludes_distributor_children(self, db_session, seed_commission_configs):
-        """代理的经销商下级不计入长期奖励（已由 followup_reward 覆盖）。"""
+        """Agent's distributor children excluded (covered by followup_reward)."""
         agent = _make_user(db_session, "agent@example.com", "agent")
         member_child = _make_user(db_session, "member@example.com", "member", parent_id=agent.id)
         dist_child = _make_user(db_session, "dist@example.com", "distributor", parent_id=agent.id)
@@ -71,7 +72,7 @@ class TestCalculateLongTermReward:
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(agent.id, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
         db_session.commit()
 
         assert len(records) == 1
@@ -79,7 +80,7 @@ class TestCalculateLongTermReward:
         assert records[0].amount == Decimal("50.00")
 
     def test_distributor_includes_all_children(self, db_session, seed_commission_configs):
-        """经销商的下级不排除任何人。"""
+        """Distributor includes all children."""
         dist = _make_user(db_session, "dist@example.com", "distributor")
         member_child = _make_user(db_session, "member@example.com", "member", parent_id=dist.id)
         dist_child = _make_user(db_session, "dist2@example.com", "distributor", parent_id=dist.id)
@@ -88,7 +89,7 @@ class TestCalculateLongTermReward:
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(dist.id, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(dist.id, "202607", db=db_session)
         db_session.commit()
 
         assert len(records) == 1
@@ -96,67 +97,67 @@ class TestCalculateLongTermReward:
         assert records[0].amount == Decimal("120.00")
 
     def test_idempotent(self, db_session, seed_commission_configs):
-        """相同周期不重复结算。"""
+        """Same period not settled twice."""
         agent = _make_user(db_session, "agent@example.com", "agent")
         child = _make_user(db_session, "c@example.com", "member", parent_id=agent.id)
         _add_commission(db_session, child.id, 1000, "t1")
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records1 = engine.calculate_long_term_reward(agent.id, "202606", db=db_session)
+        records1 = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
         db_session.commit()
 
-        records2 = engine.calculate_long_term_reward(agent.id, "202606", db=db_session)
+        records2 = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
         db_session.commit()
 
         assert len(records1) == 1
-        assert len(records2) == 0  # 幂等，第二次返回空
+        assert len(records2) == 0  # idempotent
 
     def test_no_children(self, db_session, seed_commission_configs):
-        """无下级不结算。"""
+        """No children = no settlement."""
         agent = _make_user(db_session, "agent@example.com", "agent")
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(agent.id, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
         assert records == []
 
     def test_no_child_income(self, db_session, seed_commission_configs):
-        """下级无佣金收入不结算。"""
+        """Children with no commission = no settlement."""
         agent = _make_user(db_session, "agent@example.com", "agent")
         child = _make_user(db_session, "c@example.com", "member", parent_id=agent.id)
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(agent.id, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
         assert records == []
 
     def test_regular_user_no_reward(self, db_session, seed_commission_configs):
-        """普通用户无长期奖励。"""
+        """Regular users get no long-term reward."""
         user = _make_user(db_session, "user@example.com", "user")
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(user.id, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(user.id, "202607", db=db_session)
         assert records == []
 
     def test_member_no_reward(self, db_session, seed_commission_configs):
-        """888会员无长期奖励。"""
+        """Members get no long-term reward."""
         member = _make_user(db_session, "member@example.com", "member")
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(member.id, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(member.id, "202607", db=db_session)
         assert records == []
 
     def test_nonexistent_user(self, db_session, seed_commission_configs):
-        """不存在的用户返回空。"""
+        """Nonexistent user returns empty."""
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(99999, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(99999, "202607", db=db_session)
         assert records == []
 
     def test_agent_all_distributor_children_excluded(self, db_session, seed_commission_configs):
-        """代理的所有下级都是经销商时不结算。"""
+        """Agent with only distributor children = no settlement."""
         agent = _make_user(db_session, "agent@example.com", "agent")
         dist1 = _make_user(db_session, "d1@example.com", "distributor", parent_id=agent.id)
         dist2 = _make_user(db_session, "d2@example.com", "distributor", parent_id=agent.id)
@@ -165,21 +166,40 @@ class TestCalculateLongTermReward:
         db_session.commit()
 
         engine = CommissionEngine(db_session)
-        records = engine.calculate_long_term_reward(agent.id, "202606", db=db_session)
+        records = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
+        assert records == []
+
+    def test_previous_period_excluded(self, db_session, seed_commission_configs):
+        """Commissions from outside the previous period are not counted."""
+        from datetime import datetime, timezone, timedelta
+        agent = _make_user(db_session, "agent@example.com", "agent")
+        child = _make_user(db_session, "c@example.com", "member", parent_id=agent.id)
+        # Create commission record dated 3 months ago (outside previous period)
+        old_date = datetime.now(timezone.utc) - timedelta(days=90)
+        record = CommissionRecord(
+            user_id=child.id, amount=Decimal("10000"),
+            type="first_reward", business_id="old_t1",
+            created_at=old_date,
+        )
+        db_session.add(record)
+        db_session.commit()
+
+        engine = CommissionEngine(db_session)
+        records = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
+        # Old commission should not be counted -> no reward
         assert records == []
 
 
 class TestSchedulerService:
-    """调度器服务测试。"""
+    """Scheduler service tests."""
 
     def test_run_settlement_logic(self, db_session, seed_commission_configs):
-        """验证结算逻辑正确（不通过独立 session，直接测试 engine 调用）。"""
+        """Verify settlement logic (directly via engine, not scheduler session)."""
         agent = _make_user(db_session, "agent@example.com", "agent")
         child = _make_user(db_session, "c@example.com", "member", parent_id=agent.id)
         _add_commission(db_session, child.id, 1000, "t1")
         db_session.commit()
 
-        # 直接测试 engine 逻辑（run_settlement 内部也调用此方法）
         engine = CommissionEngine(db_session)
         records = engine.calculate_long_term_reward(agent.id, "202607", db=db_session)
         db_session.commit()

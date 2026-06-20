@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import func
@@ -292,11 +293,26 @@ class CommissionEngine:
             return []
 
         # 聚合直接下级在上一周期的总佣金
+        # period 格式 YYYYMM，计算该月的起止时间
+        year = int(period[:4])
+        month = int(period[4:6])
+        if month == 1:
+            prev_year, prev_month = year - 1, 12
+        else:
+            prev_year, prev_month = year, month - 1
+        period_start = datetime(prev_year, prev_month, 1, tzinfo=timezone.utc)
+        if prev_month == 12:
+            period_end = datetime(prev_year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            period_end = datetime(prev_year, prev_month + 1, 1, tzinfo=timezone.utc)
+
         child_ids = [c.id for c in children]
         total_child_income = (
             session.query(func.coalesce(func.sum(CommissionRecord.amount), 0))
             .filter(
                 CommissionRecord.user_id.in_(child_ids),
+                CommissionRecord.created_at >= period_start,
+                CommissionRecord.created_at < period_end,
             )
             .scalar()
         )

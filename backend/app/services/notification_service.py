@@ -10,6 +10,7 @@
 """
 
 import logging
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -65,10 +66,15 @@ class NotificationService:
         user_id: int, amount: str, commission_type: str, db: Session
     ) -> NotificationLog:
         """通知用户：佣金入账。"""
+        # S6: 格式化金额，避免 Decimal 原始字符串如 "488.4000"
+        try:
+            formatted_amount = str(Decimal(amount).quantize(Decimal("0.01")))
+        except Exception:
+            formatted_amount = amount
         return NotificationService.send(
             user_id=user_id,
             event_type="commission_credited",
-            content={"amount": amount, "type": commission_type},
+            content={"amount": formatted_amount, "type": commission_type},
             db=db,
         )
 
@@ -128,7 +134,7 @@ class NotificationService:
 
     @staticmethod
     def mark_as_read(notification_id: int, user_id: int, db: Session) -> bool:
-        """标记通知为已读（sent=True）。"""
+        """标记通知为已读（sent=True）。flush-only，由调用方 commit。"""
         notification = (
             db.query(NotificationLog)
             .filter(
@@ -140,7 +146,7 @@ class NotificationService:
         if not notification:
             return False
         notification.sent = True
-        db.commit()
+        db.flush()
         return True
 
 
