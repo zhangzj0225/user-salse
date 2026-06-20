@@ -8,8 +8,9 @@
 | 前端 Web | React 19 + Vite + Ant Design v6 | 5173 | `user-web/` |
 | 定时任务 | APScheduler (后台进程) | — | `backend/app/services/scheduler_service.py` |
 
-## 2. 环境变量 (`backend/.env`)
+## 2. 环境变量
 
+**后端** (`backend/.env`):
 ```env
 ENV=dev
 DATABASE_URL=sqlite:///./deploy_test.db
@@ -18,7 +19,25 @@ INVITE_CODE_SECRET=deploy-test-invite-secret-ok
 LICENSE_SECRET=deploy-test-license-secret-ok
 LICENSE_API_KEY=deploy-test-license-api-key
 AUTH_MODE=mock
+CORS_ORIGINS=http://localhost:5173
 ```
+
+**前端** (`user-web/.env`):
+```env
+VITE_API_PROXY=http://127.0.0.1:8000
+```
+
+**E2E 测试**（所有脚本从 `e2e_common.py` 读取，支持环境变量覆盖）:
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| E2E_API_BASE | http://127.0.0.1:8000 | 后端地址 |
+| E2E_UI_BASE | http://localhost:5173 | 前端地址 |
+| E2E_MOCK_CODE | 123456 | Mock 验证码 |
+| E2E_ADMIN_USER | admin | 管理员用户名 |
+| E2E_ADMIN_PASS | admin123 | 管理员密码 |
+| E2E_LICENSE_KEY | deploy-test-license-api-key | License API Key |
+| DATABASE_URL | （必须设置） | 与运行中后端指向同一库 |
 
 **Mock 模式**：验证码固定为 `123456`，无需真实邮件服务。
 
@@ -129,22 +148,25 @@ npx vite --host 0.0.0.0 --port 5173
 
 ## 7. 测试脚本
 
-### 完整功能测试 (30/30 PASSED)
-```bash
-python d:/user-salse/e2e_full_flow.py
-```
-涵盖：种子4用户、佣金矩阵、角色不降级、邀请码防护、提现、浏览器注册裂变、API冒烟。
+所有脚本从 `e2e_common.py` 导入公共模块，不再硬编码路径/密码/URL。
 
-### 深层分销链测试 (15/15 核心 PASS)
+### 运行方式
 ```bash
-cd backend && python ../chain_e2e.py
-```
-涵盖：A(代理)→B(代理)→C(经销商)→D(用户) 四级链路 + 场景A额度销售 + 长期奖励。
+# 必须设置 DATABASE_URL（与后端 .env 一致）
+set DATABASE_URL=sqlite:///./backend/deploy_test.db
 
-### 可见浏览器测试
-```bash
-python d:/user-salse/visible_e2e.py           # 注册流程（可见浏览器）
-python d:/user-salse/visible_e2e_full.py      # 多角色登录+截图（可见浏览器）
+# 深层分销链 (19/19)
+python chain_e2e.py
+
+# 缺口覆盖 (31/31)
+python e2e_gap_cover.py
+
+# 全功能回归 (30/30)
+python e2e_full_flow.py
+
+# 可见浏览器测试
+python visible_e2e.py
+python visible_e2e_full.py
 ```
 
 ## 8. Playwright 配置
