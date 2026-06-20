@@ -1,0 +1,2 @@
+﻿UnicodeEncodeError: 'gbk' codec can't encode character '\u26a0' in position 12:
+ illegal multibyte sequence

@@ -55,12 +55,14 @@ export default function LoginPage() {
     email: string,
     scene: "login" | "register",
     setter: React.Dispatch<React.SetStateAction<number>>,
+    countdown: number,
   ) => {
     if (!email) {
       message.warning("请输入邮箱");
       return;
     }
-    // F4: 在途防护，防止重复点击发多封验证码 + 倒计时倍速
+    // 已在倒计时中或正在发送，防止重复
+    if (countdown > 0 || sending) return;
     setSending(true);
     try {
       await authApi.sendEmailCode({ email, scene });
@@ -149,10 +151,10 @@ export default function LoginPage() {
                       placeholder="请输入验证码"
                       maxLength={6}
                       enterButton={loginCountdown > 0 ? `${loginCountdown}s` : "获取验证码"}
-                      disabled={loginCountdown > 0 || sending}
+                      disabled={sending}
                       loading={sending && loginCountdown === 0}
                       onSearch={() =>
-                        handleSendCode(loginForm.getFieldValue("email"), "login", setLoginCountdown)
+                        handleSendCode(loginForm.getFieldValue("email"), "login", setLoginCountdown, loginCountdown)
                       }
                     />
                   </Form.Item>
@@ -192,13 +194,14 @@ export default function LoginPage() {
                       placeholder="请输入验证码"
                       maxLength={6}
                       enterButton={registerCountdown > 0 ? `${registerCountdown}s` : "获取验证码"}
-                      disabled={registerCountdown > 0 || sending}
+                      disabled={sending}
                       loading={sending && registerCountdown === 0}
                       onSearch={() =>
                         handleSendCode(
                           registerForm.getFieldValue("email"),
                           "register",
                           setRegisterCountdown,
+                          registerCountdown,
                         )
                       }
                     />
