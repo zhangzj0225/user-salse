@@ -64,8 +64,8 @@ development_status:
 
   epic-4: in-progress
   4-1-user-management: done
-  4-2-recharge-review: backlog
-  4-3-operations-dashboard: backlog
+  4-2-recharge-review: done
+  4-3-operations-dashboard: done
   4-4-system-parameter-configuration: backlog
   epic-4-retrospective: optional
 

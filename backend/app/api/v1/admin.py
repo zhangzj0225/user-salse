@@ -17,6 +17,8 @@ from app.schemas.ticket import (
     TicketActionResponse,
 )
 from app.schemas.admin_user import UserDetail, UserListResponse
+from app.schemas.dashboard import DashboardStats
+from app.services.dashboard_service import DashboardService, get_dashboard_service
 from app.services.recharge_service import RechargeService, get_recharge_service
 from app.services.user_management_service import UserManagementService, get_user_management_service
 from app.services.withdrawal_service import WithdrawalService, get_withdrawal_service
@@ -77,6 +79,18 @@ def approve_recharge_endpoint(
             raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": RechargeInfo.model_validate(recharge).model_dump()}
+
+
+# ---- 运营数据看板（Story 4.3）----
+
+@router.get("/dashboard", response_model=DashboardStats)
+def get_dashboard_endpoint(
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+    service: DashboardService = Depends(get_dashboard_service),
+):
+    """管理员运营数据看板：用户统计 + 今日数据 + 待处理工单。"""
+    return service.get_stats(db)
 
 
 # ---- 用户管理（Story 4.1）----
