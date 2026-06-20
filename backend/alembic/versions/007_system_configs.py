@@ -1,7 +1,7 @@
 """Migration: system_configs table (Story 4.4)."""
 
 revision = "007_system_configs"
-down_revision = "006_pending_user_key"
+down_revision = "006"
 
 from alembic import op
 import sqlalchemy as sa

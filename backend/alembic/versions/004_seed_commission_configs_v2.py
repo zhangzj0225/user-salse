@@ -19,6 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     commission_configs = sa.table(
         'commission_configs',
+        sa.column('id', sa.Integer),
         sa.column('role', sa.Enum('user', 'member', 'distributor', 'agent')),
         sa.column('scene', sa.String(32)),
         sa.column('reward_type', sa.Enum('fixed', 'percentage')),
