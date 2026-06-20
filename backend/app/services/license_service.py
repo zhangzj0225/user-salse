@@ -96,8 +96,8 @@ class LicenseService:
         db.flush()
 
         logger.info(
-            "License generated: user_id=%d recharge_id=%d role=%s code=%s",
-            user_id, recharge_id, target_role, code,
+            "License generated: user_id=%d recharge_id=%d role=%s code_prefix=%s",
+            user_id, recharge_id, target_role, code[:8],
         )
         return license_obj
 
@@ -120,10 +120,11 @@ class LicenseService:
 
         验证步骤：
         1. 签名校验（防篡改）
-        2. DB 查询 License 是否存在
+        2. DB 查询 License 是否存在（行锁防并发重复激活）
         3. 邮箱匹配
-        4. 状态检查（必须为 unused）
-        5. 激活：status → activated, activated_at → now
+        4. user_id 交叉验证（defense in depth）
+        5. 状态检查（必须为 unused）
+        6. 激活：status → activated, activated_at → now
 
         返回: {"success": bool, "message": str}
         """
@@ -132,8 +133,13 @@ class LicenseService:
         if not valid:
             return {"success": False, "message": "License 签名验证失败"}
 
-        # 2. DB 查询
-        license_obj = db.query(License).filter(License.code == code).first()
+        # 2. DB 查询（行锁防并发）
+        license_obj = (
+            db.query(License)
+            .filter(License.code == code)
+            .with_for_update()
+            .first()
+        )
         if not license_obj:
             return {"success": False, "message": "License 不存在"}
 
@@ -141,20 +147,28 @@ class LicenseService:
         if license_obj.email != email:
             return {"success": False, "message": "邮箱与 License 不匹配"}
 
-        # 4. 状态检查
+        # 4. user_id 交叉验证（defense in depth）
+        if parsed_user_id is not None and license_obj.user_id != parsed_user_id:
+            logger.warning(
+                "License user_id mismatch: code_prefix=%s db_uid=%d sig_uid=%s",
+                code[:8], license_obj.user_id, parsed_user_id,
+            )
+            return {"success": False, "message": "License 用户信息不一致"}
+
+        # 5. 状态检查
         if license_obj.status == "activated":
             return {"success": False, "message": "License 已激活"}
         if license_obj.status == "expired":
             return {"success": False, "message": "License 已过期"}
 
-        # 5. 激活
+        # 6. 激活
         license_obj.status = "activated"
         license_obj.activated_at = datetime.now(timezone.utc)
         db.commit()
 
         logger.info(
-            "License activated: code=%s user_id=%d email=%s",
-            code, license_obj.user_id, email,
+            "License activated: code_prefix=%s user_id=%d email=%s",
+            code[:8], license_obj.user_id, email,
         )
         return {"success": True, "message": "License 激活成功"}
 

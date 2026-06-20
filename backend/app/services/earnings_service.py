@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.commission_record import CommissionRecord
+from app.models.ticket import Ticket
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -73,15 +74,29 @@ class EarningsService:
             .all()
         )
 
-        # 汇总：记账余额 = 所有佣金总和（提现功能未实现，withdrawn=0）
-        all_records = (
-            db.query(CommissionRecord)
-            .filter(CommissionRecord.user_id == user_id)
-            .all()
-        )
-        pending = sum((Decimal(r.amount) for r in all_records), Decimal("0.00"))
-        withdrawn = Decimal("0.00")  # 提现功能在后续 Story 实现
-        available = pending - withdrawn  # 无冻结金额
+        # 汇总：记账余额 = 所有佣金总和（SQL 聚合）
+        pending_result = db.query(
+            func.coalesce(func.sum(CommissionRecord.amount), 0)
+        ).filter(CommissionRecord.user_id == user_id).scalar()
+        pending = Decimal(pending_result)
+
+        # 已冻结 = pending 工单总额（SQL 聚合）
+        frozen_result = db.query(
+            func.coalesce(func.sum(Ticket.amount), 0)
+        ).filter(
+            Ticket.user_id == user_id, Ticket.status == "pending"
+        ).scalar()
+        frozen = Decimal(frozen_result)
+
+        # 已提现 = paid 工单总额
+        withdrawn_result = db.query(
+            func.coalesce(func.sum(Ticket.amount), 0)
+        ).filter(
+            Ticket.user_id == user_id, Ticket.status == "paid"
+        ).scalar()
+        withdrawn = Decimal(withdrawn_result)
+
+        available = pending - frozen  # 可用余额 = 记账余额 - 冻结金额
 
         # 构建 source_email
         source_ids = {r.source_user_id for r in records if r.source_user_id}
