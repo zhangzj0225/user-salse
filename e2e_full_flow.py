@@ -93,7 +93,7 @@ resp=reg(em("bad"),"BAD_CODE"); chk(resp.get("_e") in (400,422),f"S9c: Invalid I
 print("\n=== S4+S12: Playwright ===")
 async def pw_tests():
     async with async_playwright() as p:
-        br = await p.chromium.launch(headless=True)
+        br = await p.chromium.launch(headless=False, slow_mo=500)
         pg = await br.new_page()
 
         # S4: Browser register - use visible email input on register tab
