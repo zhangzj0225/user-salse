@@ -21,8 +21,9 @@ class Settings(BaseSettings):
     INVITE_CODE_SECRET: str = _DEFAULT_INVITE_SECRET
     LICENSE_SECRET: str = _DEFAULT_LICENSE_SECRET
     LICENSE_API_KEY: str = _DEFAULT_LICENSE_API_KEY
-    # 运行环境：dev 放宽 secret 校验，production 必须显式配置安全密钥
-    ENV: Literal["dev", "production"] = "dev"
+    # 运行环境：默认 production（fail-closed），生产忘设 ENV 也会强校验密钥。
+    # 仅显式设 ENV=dev 时放宽（本地开发/测试）。
+    ENV: Literal["dev", "production"] = "production"
 
     model_config = {"env_file": ".env"}
 

@@ -1,3 +1,9 @@
+import os
+
+# 测试环境默认 dev：SEC-1 默认 ENV=production（fail-closed），测试需显式降级，
+# 否则 TestClient startup 会因默认密钥抛 RuntimeError。必须在 import app.* 之前设置。
+os.environ.setdefault("ENV", "dev")
+
 import pytest
 from decimal import Decimal
 from sqlalchemy import create_engine

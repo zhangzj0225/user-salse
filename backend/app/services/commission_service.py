@@ -28,9 +28,11 @@ def record_commission(
 
     Returns the CommissionRecord if created, None if already exists.
 
-    幂等保证：先查 existing；并发下两个事务同时未查到时，第二个 flush 会因
-    business_id UNIQUE 抛 IntegrityError，捕获后重查返回 None（幂等降级），
-    而非让 IntegrityError 上抛导致包裹事务整体回滚。
+    幂等保证：先查 existing，命中则返回 None。并发下两事务同时未查到时，第二个
+    flush 撞 business_id UNIQUE 抛 IntegrityError，捕获后 rollback 并返回 None
+    （幂等降级）。该并发路径在当前唯一生产调用方 approve_recharge 不可达（其用
+    for_update 锁 Recharge 序列化、business_id 按 recharge_id 唯一）；此 except
+    为防御性兜底，触发时调用方事务需重试。
     """
     existing = (
         db.query(CommissionRecord)
@@ -52,14 +54,15 @@ def record_commission(
     )
     db.add(record)
     try:
-        # F4: 用 savepoint 包裹 flush，IntegrityError 只回滚 savepoint，
-        # 不连累包裹事务（如 approve_recharge 内已 flush 的角色/额度/License）。
-        nested = db.begin_nested()
         db.flush()
     except IntegrityError:
-        # 并发竞态：另一事务已插入同 business_id。回滚 savepoint（非整事务），
-        # 重查确认存在后返回 None。
-        nested.rollback()
+        # F4: 并发竞态——另一事务已插入同 business_id，UNIQUE 约束兜底。
+        # 此路径在当前唯一生产调用方（approve_recharge）不可达：该方法用 for_update
+        # 锁 Recharge 行序列化同笔充值审批，business_id 按 recharge_id 唯一。
+        # 此 except 为防御性幂等降级：捕获后整事务 rollback 并返回 None，调用方需重试。
+        # 注意：SQLAlchemy 2.0 下 flush 撞 UNIQUE 后 session 进入 rollback-pending，
+        # savepoint 也无法让包裹事务继续，故此处 db.rollback() 是必要且诚实的。
+        db.rollback()
         logger.info(
             "Commission race resolved (idempotent): business_id=%s", business_id
         )

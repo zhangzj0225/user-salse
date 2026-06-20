@@ -1,12 +1,23 @@
-"""SEC-1: 生产环境密钥默认值启动校验。"""
+"""SEC-1: 生产环境密钥默认值启动校验（fail-closed）。
+
+ENV 默认 production（见 config.py），测试环境由 conftest 设 ENV=dev 降级。
+本文件用 monkeypatch 显式控制 ENV 验证 validate_security_secrets 的分支逻辑。
+"""
 
 import pytest
 
 from app.core import config
+from app.core.config import Settings
+
+
+def test_env_field_defaults_to_production():
+    """D3: ENV 字段默认 production（fail-closed），生产忘设 ENV 也会强校验。
+    读字段定义默认值，不受运行时环境变量覆盖影响。"""
+    assert Settings.model_fields["ENV"].default == "production"
 
 
 def test_dev_env_with_defaults_only_warns(monkeypatch):
-    """dev 环境（默认）用默认密钥不抛错（仅 warning）。"""
+    """dev 环境用默认密钥不抛错（仅 warning）。需显式设 ENV=dev。"""
     monkeypatch.setattr(config.settings, "ENV", "dev")
     monkeypatch.setattr(config.settings, "SECRET_KEY", config._DEFAULT_SECRET_KEY)
     monkeypatch.setattr(config.settings, "INVITE_CODE_SECRET", config._DEFAULT_INVITE_SECRET)
