@@ -33,9 +33,7 @@ export default function LoginPage() {
     };
   }, []);
 
-  const startCountdown = (
-    setter: React.Dispatch<React.SetStateAction<number>>,
-  ) => {
+  const startCountdown = (setter: React.Dispatch<React.SetStateAction<number>>) => {
     // F1: 覆盖前先清旧 interval，防止 Tab 切换后旧倒计时残留泄漏
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -118,9 +116,7 @@ export default function LoginPage() {
       }}
     >
       <Card style={{ width: 420 }}>
-        <h2 style={{ textAlign: "center", marginBottom: 24 }}>
-          足球舆情分销系统
-        </h2>
+        <h2 style={{ textAlign: "center", marginBottom: 24 }}>足球舆情分销系统</h2>
         <Tabs
           items={[
             {
@@ -152,28 +148,15 @@ export default function LoginPage() {
                     <Input.Search
                       placeholder="请输入验证码"
                       maxLength={6}
-                      enterButton={
-                        loginCountdown > 0
-                          ? `${loginCountdown}s`
-                          : "获取验证码"
-                      }
+                      enterButton={loginCountdown > 0 ? `${loginCountdown}s` : "获取验证码"}
                       disabled={loginCountdown > 0 || sending}
                       loading={sending && loginCountdown === 0}
                       onSearch={() =>
-                        handleSendCode(
-                          loginForm.getFieldValue("email"),
-                          "login",
-                          setLoginCountdown,
-                        )
+                        handleSendCode(loginForm.getFieldValue("email"), "login", setLoginCountdown)
                       }
                     />
                   </Form.Item>
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    block
-                    loading={loading}
-                  >
+                  <Button type="primary" htmlType="submit" block loading={loading}>
                     登录
                   </Button>
                 </Form>
@@ -183,11 +166,7 @@ export default function LoginPage() {
               key: "register",
               label: "注册",
               children: (
-                <Form
-                  form={registerForm}
-                  onFinish={handleRegister}
-                  layout="vertical"
-                >
+                <Form form={registerForm} onFinish={handleRegister} layout="vertical">
                   <Form.Item
                     name="email"
                     label="邮箱"
@@ -212,11 +191,7 @@ export default function LoginPage() {
                     <Input.Search
                       placeholder="请输入验证码"
                       maxLength={6}
-                      enterButton={
-                        registerCountdown > 0
-                          ? `${registerCountdown}s`
-                          : "获取验证码"
-                      }
+                      enterButton={registerCountdown > 0 ? `${registerCountdown}s` : "获取验证码"}
                       disabled={registerCountdown > 0 || sending}
                       loading={sending && registerCountdown === 0}
                       onSearch={() =>
@@ -235,12 +210,7 @@ export default function LoginPage() {
                   >
                     <Input placeholder="请输入邀请码" autoComplete="off" />
                   </Form.Item>
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    block
-                    loading={loading}
-                  >
+                  <Button type="primary" htmlType="submit" block loading={loading}>
                     注册
                   </Button>
                 </Form>

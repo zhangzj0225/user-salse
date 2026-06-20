@@ -74,10 +74,10 @@ development_status:
   5-2-message-notifications: done
   epic-5-retrospective: optional
 
-  epic-6: backlog
-  6-1-user-web-init-and-login: backlog
-  6-2-home-and-profile: backlog
-  6-3-team-and-earnings: backlog
-  6-4-recharge-and-sales: backlog
-  6-5-withdrawal-tickets: backlog
+  epic-6: in-progress
+  6-1-user-web-init-and-login: done
+  6-2-home-and-profile: done
+  6-3-team-and-earnings: done
+  6-4-recharge-and-sales: done
+  6-5-withdrawal-tickets: done
   epic-6-retrospective: optional
