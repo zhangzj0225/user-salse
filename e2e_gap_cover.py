@@ -6,7 +6,7 @@ import json, os, sys, time, urllib.request as ur
 from decimal import Decimal
 
 os.environ.setdefault("ENV", "dev")
-sys.path.insert(0, "d:/user-salse/backend")  # Ensure correct module path
+sys.path.insert(0, "D:/workspace/user-salse/backend")  # Ensure correct module path
 
 BASE = "http://127.0.0.1:8000"; MOCK = "123456"
 TS = str(int(time.time()))[-4:]; results = []
