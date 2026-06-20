@@ -18,8 +18,14 @@ from app.schemas.ticket import (
 )
 from app.schemas.admin_user import UserDetail, UserListResponse
 from app.schemas.dashboard import DashboardStats
+from app.schemas.system_config import (
+    ConfigChangeLogListResponse,
+    ConfigListResponse,
+    ConfigUpdateRequest,
+)
 from app.services.dashboard_service import DashboardService, get_dashboard_service
 from app.services.recharge_service import RechargeService, get_recharge_service
+from app.services.system_config_service import SystemConfigService, get_system_config_service
 from app.services.user_management_service import UserManagementService, get_user_management_service
 from app.services.withdrawal_service import WithdrawalService, get_withdrawal_service
 
@@ -79,6 +85,66 @@ def approve_recharge_endpoint(
             raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": RechargeInfo.model_validate(recharge).model_dump()}
+
+
+# ---- 系统参数配置（Story 4.4）----
+
+@router.get("/configs", response_model=ConfigListResponse)
+def list_configs_endpoint(
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+    service: SystemConfigService = Depends(get_system_config_service),
+):
+    """管理员查看系统参数配置列表。"""
+    configs = service.list_configs(db)
+    return {"configs": configs}
+
+
+@router.get("/configs/{config_key}", response_model=dict)
+def get_config_endpoint(
+    config_key: str,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+    service: SystemConfigService = Depends(get_system_config_service),
+):
+    """管理员查看单个配置项。"""
+    try:
+        result = service.get_config(config_key, db)
+    except ValueError as e:
+        if "不存在" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"data": result}
+
+
+@router.put("/configs/{config_key}", response_model=dict)
+def update_config_endpoint(
+    config_key: str,
+    request: ConfigUpdateRequest,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+    service: SystemConfigService = Depends(get_system_config_service),
+):
+    """管理员更新系统参数配置，修改仅对新业务生效。"""
+    try:
+        result = service.update_config(config_key, request.config_value, current_admin.id, db)
+    except ValueError as e:
+        if "不存在" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"data": result}
+
+
+@router.get("/config-change-logs", response_model=ConfigChangeLogListResponse)
+def list_config_change_logs_endpoint(
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+    service: SystemConfigService = Depends(get_system_config_service),
+):
+    """管理员查看配置变更日志。"""
+    logs = service.list_change_logs(db, limit=limit)
+    return {"logs": logs}
 
 
 # ---- 运营数据看板（Story 4.3）----

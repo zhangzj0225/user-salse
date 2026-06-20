@@ -10,6 +10,7 @@ from app.models.commission_record import CommissionRecord
 from app.models.ticket import Ticket
 from app.models.audit_log import AuditLog
 from app.models.config_change_log import ConfigChangeLog
+from app.models.system_config import SystemConfig
 from app.models.notification_log import NotificationLog
 
 __all__ = [
