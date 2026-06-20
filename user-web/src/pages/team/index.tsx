@@ -5,10 +5,10 @@ import type { TeamMember, UpstreamMember } from "../../services/team";
 import dayjs from "dayjs";
 
 const roleLabelMap: Record<string, string> = {
-  admin: "管理员",
+  user: "普通用户",
+  member: "888会员",
+  distributor: "经销商",
   agent: "代理",
-  distributor: "分销商",
-  customer: "客户",
 };
 
 function formatRole(role: string) {
@@ -26,17 +26,18 @@ export default function TeamPage() {
     queryFn: () => teamApi.getUpstream(),
   });
 
+  // 后端返回 {total_count, root:{children:[...]}}，取 root.children 为直接下级
   const downstreamColumns = [
     {
-      title: "邮箱",
-      dataIndex: "email",
-      key: "email",
+      title: "用户ID",
+      dataIndex: "user_id",
+      key: "user_id",
     },
     {
       title: "昵称",
       dataIndex: "nickname",
       key: "nickname",
-      render: (text: string) => text || "-",
+      render: (text: string | null) => text || "-",
     },
     {
       title: "角色",
@@ -46,8 +47,8 @@ export default function TeamPage() {
     },
     {
       title: "下级数量",
-      dataIndex: "children_count",
-      key: "children_count",
+      dataIndex: "direct_downline_count",
+      key: "direct_downline_count",
     },
     {
       title: "注册时间",
@@ -59,21 +60,26 @@ export default function TeamPage() {
 
   const upstreamColumns = [
     {
-      title: "邮箱",
-      dataIndex: "email",
-      key: "email",
+      title: "用户ID",
+      dataIndex: "user_id",
+      key: "user_id",
     },
     {
       title: "昵称",
       dataIndex: "nickname",
       key: "nickname",
-      render: (text: string) => text || "-",
+      render: (text: string | null) => text || "-",
     },
     {
       title: "角色",
       dataIndex: "role",
       key: "role",
       render: (role: string) => <Tag color="blue">{formatRole(role)}</Tag>,
+    },
+    {
+      title: "层级",
+      dataIndex: "level",
+      key: "level",
     },
   ];
 
@@ -88,9 +94,9 @@ export default function TeamPage() {
             children: (
               <Table<TeamMember>
                 columns={downstreamColumns}
-                dataSource={downstreamData?.data ?? []}
+                dataSource={downstreamData?.root?.children ?? []}
                 loading={downstreamLoading}
-                rowKey="id"
+                rowKey="user_id"
                 pagination={{ pageSize: 20, showSizeChanger: false }}
                 locale={{
                   emptyText: <Empty description="暂无下级成员" />,
@@ -104,9 +110,9 @@ export default function TeamPage() {
             children: (
               <Table<UpstreamMember>
                 columns={upstreamColumns}
-                dataSource={upstreamData?.data ?? []}
+                dataSource={upstreamData?.chain ?? []}
                 loading={upstreamLoading}
-                rowKey="id"
+                rowKey="user_id"
                 pagination={false}
                 locale={{
                   emptyText: <Empty description="暂无上级信息" />,

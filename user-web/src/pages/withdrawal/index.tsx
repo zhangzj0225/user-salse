@@ -5,7 +5,6 @@ import {
   Statistic,
   Form,
   Input,
-  InputNumber,
   Select,
   Button,
   Table,
@@ -48,22 +47,19 @@ export default function WithdrawalPage() {
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
 
-  const { data: summaryData, isLoading: summaryLoading } = useQuery({
+  const { data: earningsData, isLoading: earningsLoading } = useQuery({
     queryKey: ["earningsSummary"],
-    queryFn: () => earningsApi.getSummary(),
+    queryFn: () => earningsApi.getEarnings(),
   });
 
   const { data: ticketsData, isLoading: ticketsLoading } = useQuery({
-    queryKey: ["tickets", "pending"],
+    queryKey: ["tickets"],
     queryFn: () => ticketApi.list({ limit: 50, offset: 0 }),
   });
 
   const createMutation = useMutation({
-    mutationFn: (values: {
-      amount: number;
-      payment_method: string;
-      payment_info: string;
-    }) => ticketApi.create(values),
+    mutationFn: (values: { amount: string; payment_method: string }) =>
+      ticketApi.create(values),
     onSuccess: () => {
       message.success("提现申请已提交");
       form.resetFields();
@@ -83,26 +79,22 @@ export default function WithdrawalPage() {
       title: "提现金额",
       dataIndex: "amount",
       key: "amount",
-      render: (amount: number) => `¥${Number(amount).toFixed(2)}`,
-    },
-    {
-      title: "收款方式",
-      dataIndex: "payment_method",
-      key: "payment_method",
-      render: (method: string) => paymentMethodLabelMap[method] ?? method,
+      render: (amount: string) => `¥${Number(amount).toFixed(2)}`,
     },
     {
       title: "收款信息",
-      dataIndex: "payment_info",
-      key: "payment_info",
-      render: (text: string) => text || "-",
+      dataIndex: "payment_method",
+      key: "payment_method",
+      render: (method: string) => paymentMethodLabelMap[method] ?? method,
     },
     {
       title: "状态",
       dataIndex: "status",
       key: "status",
       render: (status: string) => (
-        <Tag color={statusColorMap[status] ?? "default"}>{statusLabelMap[status] ?? status}</Tag>
+        <Tag color={statusColorMap[status] ?? "default"}>
+          {statusLabelMap[status] ?? status}
+        </Tag>
       ),
     },
     {
@@ -113,7 +105,7 @@ export default function WithdrawalPage() {
     },
   ];
 
-  const availableBalance = summaryData?.data.available_balance ?? 0;
+  const availableBalance = Number(earningsData?.summary?.available_balance ?? 0);
 
   return (
     <div>
@@ -122,7 +114,7 @@ export default function WithdrawalPage() {
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Card>
-            {summaryLoading ? (
+            {earningsLoading ? (
               <Skeleton active paragraph={{ rows: 1 }} />
             ) : (
               <Statistic
@@ -140,7 +132,7 @@ export default function WithdrawalPage() {
         <Form
           form={form}
           layout="vertical"
-          onFinish={(values) => createMutation.mutate(values)}
+          onFinish={(values) => createMutation.mutate({ amount: String(values.amount), payment_method: values.payment_method })}
           style={{ maxWidth: 480 }}
         >
           <Form.Item
@@ -151,38 +143,24 @@ export default function WithdrawalPage() {
               {
                 validator: (_, value) => {
                   if (value == null) return Promise.resolve();
-                  if (value <= 0) {
-                    return Promise.reject(new Error("提现金额必须大于0"));
-                  }
-                  if (value > availableBalance) {
-                    return Promise.reject(new Error("提现金额不能超过可用余额"));
-                  }
+                  if (Number(value) <= 0) return Promise.reject(new Error("提现金额必须大于0"));
+                  if (Number(value) > availableBalance) return Promise.reject(new Error("提现金额不能超过可用余额"));
                   return Promise.resolve();
                 },
               },
             ]}
           >
-            <InputNumber
-              style={{ width: "100%" }}
-              min={0}
-              max={availableBalance}
-              precision={2}
-              placeholder="请输入提现金额"
-            />
+            <Input placeholder="请输入提现金额" />
           </Form.Item>
           <Form.Item
             name="payment_method"
-            label="收款方式"
-            rules={[{ required: true, message: "请选择收款方式" }]}
-          >
-            <Select placeholder="请选择收款方式" options={paymentMethodOptions} />
-          </Form.Item>
-          <Form.Item
-            name="payment_info"
             label="收款信息"
-            rules={[{ required: true, message: "请输入收款信息" }]}
+            rules={[{ required: true, message: "请填写收款信息" }]}
           >
-            <Input.TextArea rows={2} placeholder="请输入收款账号/信息" />
+            <Select
+              placeholder="请选择收款方式"
+              options={paymentMethodOptions}
+            />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={createMutation.isPending}>
@@ -195,7 +173,7 @@ export default function WithdrawalPage() {
       <Card title="提现记录">
         <Table<Ticket>
           columns={columns}
-          dataSource={ticketsData?.data ?? []}
+          dataSource={ticketsData?.tickets ?? []}
           loading={ticketsLoading}
           rowKey="id"
           pagination={{ pageSize: 20, showSizeChanger: false }}

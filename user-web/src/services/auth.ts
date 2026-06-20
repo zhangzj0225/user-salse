@@ -2,7 +2,7 @@ import { request } from "./api";
 
 export interface SendCodeParams {
   email: string;
-  scene: "login" | "register";
+  scene: "login" | "register" | "sale_verify";
 }
 
 export interface RegisterParams {

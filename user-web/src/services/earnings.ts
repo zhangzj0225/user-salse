@@ -1,48 +1,42 @@
 import { request } from "./api";
 
+// ── 后端 EarningsSummary: { pending_balance, withdrawn_total, available_balance }（均为 str）──
 export interface EarningsSummary {
-  total_commission: number;
-  withdrawn_total: number;
-  available_balance: number;
+  pending_balance: string;
+  withdrawn_total: string;
+  available_balance: string;
 }
 
+// ── 后端 EarningsRecord ──
 export interface EarningsRecord {
   id: number;
-  amount: number;
+  amount: string;
   type: string;
-  from_user_email: string;
-  from_user_nickname: string;
-  status: string;
+  source_user_id: number | null;
+  source_email: string | null;
+  business_id: string;
   created_at: string;
-  remark: string;
 }
 
-export interface EarningsSummaryResponse {
-  data: EarningsSummary;
-}
-
-export interface EarningsRecordsResponse {
-  data: EarningsRecord[];
+// ── 后端 EarningsListResponse: { summary, records, total } ──
+export interface EarningsListResponse {
+  summary: EarningsSummary;
+  records: EarningsRecord[];
   total: number;
 }
 
-export interface EarningsRecordsParams {
+export interface EarningsListParams {
   type?: string;
   limit?: number;
   offset?: number;
 }
 
 export const earningsApi = {
-  getSummary: () =>
-    request<EarningsSummaryResponse>({
+  /** 收益汇总 + 明细，单端点返回二者（后端无独立 /summary /records）。 */
+  getEarnings: (params?: EarningsListParams) =>
+    request<EarningsListResponse>({
       method: "GET",
-      url: "/earnings/summary",
-    }),
-
-  getRecords: (params: EarningsRecordsParams) =>
-    request<EarningsRecordsResponse>({
-      method: "GET",
-      url: "/earnings/records",
+      url: "/users/me/earnings",
       params,
     }),
 };

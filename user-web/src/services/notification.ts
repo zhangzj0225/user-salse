@@ -1,14 +1,15 @@
 import { request } from "./api";
 
+// ── 后端通知项（notification_service 返回）──
 export interface NotificationItem {
   id: number;
-  title: string;
-  content: string;
-  is_read: boolean;
-  type: string;
+  event_type: string;      // 后端字段，非 type
+  content: Record<string, unknown>;  // JSON dict，非纯字符串
+  sent: boolean;           // 后端字段，非 is_read
   created_at: string;
 }
 
+// ── 后端响应: { notifications, total } ──
 export interface NotificationsResponse {
   notifications: NotificationItem[];
   total: number;

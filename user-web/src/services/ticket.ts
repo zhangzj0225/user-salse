@@ -1,26 +1,35 @@
 import { request } from "./api";
 
+// ── 后端 TicketInfo（无 data 包装）──
 export interface Ticket {
   id: number;
-  amount: number;
-  status: string;
+  user_id: number;
+  amount: string;
   payment_method: string;
-  payment_info: string;
+  status: string;
+  reject_reason?: string;
+  processed_by?: number;
+  processed_at?: string;
   created_at: string;
 }
 
+// ── 后端 CreateTicketRequest ──
 export interface CreateTicketParams {
-  amount: number;
+  amount: string;  // 后端 str（防浮点精度）
   payment_method: string;
-  payment_info: string;
 }
 
+// ── 后端 CreateTicketResponse（无 data 包装）──
 export interface CreateTicketResponse {
-  data: { id: number; amount: number; status: string };
+  ticket_id: number;
+  amount: string;
+  status: string;
+  available_balance: string;
 }
 
+// ── 后端 TicketListResponse: { tickets, total } ──
 export interface TicketListResponse {
-  data: Ticket[];
+  tickets: Ticket[];
   total: number;
 }
 

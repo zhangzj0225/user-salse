@@ -16,16 +16,16 @@ import dayjs from "dayjs";
 const { Text } = Typography;
 
 const roleLabelMap: Record<string, string> = {
-  admin: "管理员",
+  user: "普通用户",
+  member: "888会员",
+  distributor: "经销商",
   agent: "代理",
-  distributor: "分销商",
-  customer: "客户",
 };
 
 const statusLabelMap: Record<string, string> = {
+  pending: "待激活",
   active: "正常",
-  inactive: "未激活",
-  banned: "已封禁",
+  rejected: "已拒绝",
 };
 
 export default function ProfilePage() {
@@ -73,15 +73,6 @@ export default function ProfilePage() {
                   {statusLabelMap[profile?.status ?? ""] ?? profile?.status}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="注册时间">
-                {profile?.created_at ? dayjs(profile.created_at).format("YYYY-MM-DD HH:mm") : "-"}
-              </Descriptions.Item>
-              <Descriptions.Item label="账户额度">
-                {profile?.account_quota ?? 0} 个
-              </Descriptions.Item>
-              <Descriptions.Item label="已用额度">
-                {profile?.account_used ?? 0} 个
-              </Descriptions.Item>
             </Descriptions>
           )}
         </Card>
@@ -89,12 +80,6 @@ export default function ProfilePage() {
 
       <Card title="邀请码" style={{ marginBottom: 16 }}>
         <Space direction="vertical" size="middle">
-          <Space align="center">
-            <Text type="secondary">我的邀请码：</Text>
-            <Text copyable strong style={{ fontSize: 18 }}>
-              {profile?.invite_code || "暂无"}
-            </Text>
-          </Space>
           <Button
             type="primary"
             loading={inviteMutation.isPending}
@@ -108,16 +93,19 @@ export default function ProfilePage() {
       <Card title="授权凭证">
         {licenseLoading ? (
           <Skeleton active paragraph={{ rows: 2 }} />
-        ) : licenseData?.data ? (
+        ) : licenseData ? (
           <Descriptions column={2} bordered>
-            <Descriptions.Item label="授权码">{licenseData.data.license_code}</Descriptions.Item>
-            <Descriptions.Item label="邮箱">{licenseData.data.email}</Descriptions.Item>
+            <Descriptions.Item label="授权码">{licenseData.code}</Descriptions.Item>
+            <Descriptions.Item label="邮箱">{licenseData.email}</Descriptions.Item>
+            <Descriptions.Item label="来源">{licenseData.source}</Descriptions.Item>
             <Descriptions.Item label="状态">
-              <Tag color="green">{licenseData.data.status}</Tag>
+              <Tag color={licenseData.status === "unused" ? "green" : "orange"}>
+                {licenseData.status}
+              </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="创建时间">
-              {licenseData.data.created_at
-                ? dayjs(licenseData.data.created_at).format("YYYY-MM-DD HH:mm")
+              {licenseData.created_at
+                ? dayjs(licenseData.created_at).format("YYYY-MM-DD HH:mm")
                 : "-"}
             </Descriptions.Item>
           </Descriptions>

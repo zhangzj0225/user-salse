@@ -1,31 +1,44 @@
 import { request } from "./api";
 
+// ── 后端 TeamNode schema ──
 export interface TeamMember {
-  id: number;
-  email: string;
-  nickname: string;
+  user_id: number;
+  nickname: string | null;
   role: string;
   created_at: string;
-  children_count: number;
+  direct_downline_count: number;
+  children: TeamMember[];
 }
 
+// ── 后端 UpstreamNode schema ──
 export interface UpstreamMember {
-  id: number;
-  email: string;
-  nickname: string;
+  user_id: number;
+  nickname: string | null;
   role: string;
+  level: number;
 }
 
-export interface DownstreamResponse {
-  data: TeamMember[];
+// ── 后端 TeamTreeResponse: { total_count, root } ──
+export interface TeamTreeResponse {
+  total_count: number;
+  root: TeamMember;
 }
 
-export interface UpstreamResponse {
-  data: UpstreamMember[];
+// ── 后端 UpstreamChainResponse: { chain } ──
+export interface UpstreamChainResponse {
+  chain: UpstreamMember[];
 }
 
 export const teamApi = {
-  getDownstream: () => request<DownstreamResponse>({ method: "GET", url: "/team/downstream" }),
+  getDownstream: () =>
+    request<TeamTreeResponse>({
+      method: "GET",
+      url: "/users/me/team",
+    }),
 
-  getUpstream: () => request<UpstreamResponse>({ method: "GET", url: "/team/upstream" }),
+  getUpstream: () =>
+    request<UpstreamChainResponse>({
+      method: "GET",
+      url: "/users/me/upstream",
+    }),
 };

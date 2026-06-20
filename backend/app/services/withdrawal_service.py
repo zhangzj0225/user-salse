@@ -13,7 +13,25 @@ from app.services.earnings_service import calculate_balance_summary
 
 logger = logging.getLogger(__name__)
 
-MIN_WITHDRAWAL_AMOUNT = Decimal("100.00")
+# S1: 最低提现额从 SystemConfig 表读取（可配），fallback 100.00。
+# FR-23「参数修改仅对新业务生效」—— approval 类参数影响已有值。
+_DEFAULT_MIN_WITHDRAWAL = Decimal("100.00")
+
+
+def _get_min_withdrawal(db: Session) -> Decimal:
+    """从 SystemConfig 读取最低提现额，DB 中不存在或非数字时 fallback 默认值。"""
+    try:
+        from app.models.system_config import SystemConfig
+        config = (
+            db.query(SystemConfig)
+            .filter(SystemConfig.config_key == "min_withdrawal_amount")
+            .first()
+        )
+        if config:
+            return Decimal(config.config_value)
+    except Exception:
+        logger.warning("读取最低提现额配置失败，使用默认值", exc_info=True)
+    return _DEFAULT_MIN_WITHDRAWAL
 
 
 class WithdrawalService:
@@ -38,7 +56,7 @@ class WithdrawalService:
         """创建提现工单。
 
         1. 校验金额格式
-        2. 校验金额 >= 最低提现额（100 元）
+        2. 校验金额 >= 最低提现额（SystemConfig 可配，默认 100 元）
         3. 校验金额 <= 可用余额（行锁防并发）
         4. 创建工单（status=pending）
         5. 冻结金额（通过 pending 工单自然冻结）
@@ -55,9 +73,10 @@ class WithdrawalService:
         if amount_decimal <= 0:
             raise ValueError("提现金额必须大于 0")
 
-        # 2. 校验最低提现额
-        if amount_decimal < MIN_WITHDRAWAL_AMOUNT:
-            raise ValueError(f"提现金额不能低于最低提现额 {MIN_WITHDRAWAL_AMOUNT} 元")
+        # 2. 校验最低提现额（从 SystemConfig 读取，支持管理员在线修改）
+        min_amount = _get_min_withdrawal(db)
+        if amount_decimal < min_amount:
+            raise ValueError(f"提现金额不能低于最低提现额 {min_amount} 元")
 
         # 3. 校验可用余额 — 锁 User 行防并发超额提现
         # F6: 原先锁 pending 工单集合，用户无 pending 工单时锁空集，靠 gap lock 兜底

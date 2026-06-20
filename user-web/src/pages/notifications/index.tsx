@@ -4,7 +4,15 @@ import { notificationApi } from "../../services/notification";
 import type { NotificationItem } from "../../services/notification";
 import dayjs from "dayjs";
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
+
+const eventTypeLabelMap: Record<string, string> = {
+  subordinate_registered: "下级注册",
+  commission_credited: "佣金入账",
+  ticket_approved: "提现已打款",
+  ticket_rejected: "提现已拒绝",
+  recharge_approved: "充值审核通过",
+};
 
 export default function NotificationsPage() {
   const { message } = AntdApp.useApp();
@@ -25,6 +33,15 @@ export default function NotificationsPage() {
 
   const notifications = data?.notifications ?? [];
 
+  function formatContent(item: NotificationItem): string {
+    const c = item.content;
+    if (typeof c === "string") return c;
+    // 后端 content 为 JSON dict，提取关键字段显示
+    if (c?.amount) return `金额: ¥${Number(c.amount).toFixed(2)}`;
+    if (c?.message) return c.message as string;
+    return JSON.stringify(c);
+  }
+
   return (
     <div>
       <h2 style={{ marginBottom: 16 }}>消息通知</h2>
@@ -37,7 +54,7 @@ export default function NotificationsPage() {
           renderItem={(item: NotificationItem) => (
             <List.Item
               actions={
-                item.is_read
+                item.sent
                   ? undefined
                   : [
                       <Button
@@ -55,14 +72,16 @@ export default function NotificationsPage() {
               <List.Item.Meta
                 title={
                   <Space>
-                    {!item.is_read && <Tag color="red">未读</Tag>}
-                    <Text strong>{item.title}</Text>
+                    {!item.sent && <Tag color="red">未读</Tag>}
+                    <Text strong>{eventTypeLabelMap[item.event_type] ?? item.event_type}</Text>
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       {dayjs(item.created_at).format("YYYY-MM-DD HH:mm")}
                     </Text>
                   </Space>
                 }
-                description={<Paragraph style={{ marginBottom: 0 }}>{item.content}</Paragraph>}
+                description={
+                  <Text style={{ marginBottom: 0, color: "#666" }}>{formatContent(item)}</Text>
+                }
               />
             </List.Item>
           )}

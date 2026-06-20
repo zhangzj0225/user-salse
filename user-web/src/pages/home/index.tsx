@@ -13,17 +13,17 @@ import { quotaApi } from "../../services/quota";
 import { useAuthStore } from "../../stores/auth";
 
 const roleLabelMap: Record<string, string> = {
-  admin: "管理员",
+  user: "普通用户",
+  member: "888会员",
+  distributor: "经销商",
   agent: "代理",
-  distributor: "分销商",
-  customer: "客户",
 };
 
 const roleColorMap: Record<string, string> = {
-  admin: "red",
-  agent: "gold",
+  user: "default",
+  member: "green",
   distributor: "blue",
-  customer: "green",
+  agent: "gold",
 };
 
 export default function HomePage() {
@@ -37,7 +37,7 @@ export default function HomePage() {
 
   const { data: earningsData, isLoading: earningsLoading } = useQuery({
     queryKey: ["earningsSummary"],
-    queryFn: () => earningsApi.getSummary(),
+    queryFn: () => earningsApi.getEarnings(),
   });
 
   const role = user?.role ?? "";
@@ -59,7 +59,7 @@ export default function HomePage() {
             ) : (
               <Statistic
                 title="可用额度"
-                value={quotaData?.data.remaining ?? 0}
+                value={quotaData?.remaining ?? 0}
                 suffix="个"
                 prefix={<WalletOutlined />}
               />
@@ -73,7 +73,7 @@ export default function HomePage() {
             ) : (
               <Statistic
                 title="记账余额"
-                value={earningsData?.data.total_commission ?? 0}
+                value={Number(earningsData?.summary?.pending_balance ?? 0)}
                 prefix="¥"
               />
             )}
@@ -86,7 +86,7 @@ export default function HomePage() {
             ) : (
               <Statistic
                 title="可用余额"
-                value={earningsData?.data.available_balance ?? 0}
+                value={Number(earningsData?.summary?.available_balance ?? 0)}
                 prefix="¥"
                 valueStyle={{ color: "#3f8600" }}
               />

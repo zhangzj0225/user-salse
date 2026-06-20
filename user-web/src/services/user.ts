@@ -1,30 +1,24 @@
 import { request } from "./api";
 
+// ── 后端 LicenseInfo（无 data 包装）──
+export interface UserLicense {
+  code: string;
+  email: string;
+  source: string;
+  status: string;
+  activated_at?: string;
+  expires_at?: string;
+  created_at: string;
+}
+
+// ── 后端 UserInfo（main.py /users/me / /admin/me）──
 export interface UserProfile {
   id: number;
   email: string;
   role: string;
-  nickname: string;
+  nickname?: string;
   status: string;
-  account_quota: number;
-  account_used: number;
-  created_at: string;
-  invite_code: string;
-}
-
-export interface UserLicense {
-  license_code: string;
-  email: string;
-  status: string;
-  created_at: string;
-}
-
-export interface UserProfileResponse {
-  data: UserProfile;
-}
-
-export interface UserLicenseResponse {
-  data: UserLicense;
+  avatar_url?: string;
 }
 
 export interface InviteCodeResponse {
@@ -32,9 +26,9 @@ export interface InviteCodeResponse {
 }
 
 export const userApi = {
-  getProfile: () => request<UserProfileResponse>({ method: "GET", url: "/users/me" }),
+  getProfile: () => request<{ data: UserProfile }>({ method: "GET", url: "/users/me" }),
 
-  getLicense: () => request<UserLicenseResponse>({ method: "GET", url: "/users/me/license" }),
+  getLicense: () => request<UserLicense>({ method: "GET", url: "/users/me/license" }),
 
   generateInviteCode: () => request<InviteCodeResponse>({ method: "POST", url: "/invite-codes" }),
 };

@@ -7,13 +7,19 @@ import dayjs from "dayjs";
 
 const typeOptions = [
   { label: "全部", value: "" },
-  { label: "首单奖励", value: "first_reward" },
-  { label: "复购提成", value: "recurring" },
+  { label: "首次奖励", value: "first_reward" },
+  { label: "后续收益", value: "followup_reward" },
+  { label: "长期奖励", value: "team_bonus" },
+  { label: "推荐返佣", value: "recommend" },
+  { label: "销售佣金", value: "sale_commission" },
 ];
 
 const typeLabelMap: Record<string, string> = {
-  first_reward: "首单奖励",
-  recurring: "复购提成",
+  first_reward: "首次奖励",
+  followup_reward: "后续收益",
+  team_bonus: "长期奖励",
+  recommend: "推荐返佣",
+  sale_commission: "销售佣金",
 };
 
 const PAGE_SIZE = 20;
@@ -22,20 +28,18 @@ export default function EarningsPage() {
   const [type, setType] = useState("");
   const [page, setPage] = useState(1);
 
-  const { data: summaryData, isLoading: summaryLoading } = useQuery({
-    queryKey: ["earningsSummary"],
-    queryFn: () => earningsApi.getSummary(),
-  });
-
-  const { data: recordsData, isLoading: recordsLoading } = useQuery({
-    queryKey: ["earningsRecords", type, page],
+  const { data, isLoading } = useQuery({
+    queryKey: ["earnings", type, page],
     queryFn: () =>
-      earningsApi.getRecords({
+      earningsApi.getEarnings({
         type: type || undefined,
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       }),
   });
+
+  // 后端汇总字段为 str（金额），前端直接展示，number 转换仅用于格式化
+  const summary = data?.summary;
 
   const columns = [
     {
@@ -52,29 +56,23 @@ export default function EarningsPage() {
     },
     {
       title: "来源用户",
-      dataIndex: "from_user_email",
-      key: "from_user_email",
-      render: (email: string, record: EarningsRecord) =>
-        record.from_user_nickname ? `${record.from_user_nickname} (${email})` : email || "-",
+      dataIndex: "source_email",
+      key: "source_email",
+      render: (email: string | null) => email || "-",
     },
     {
       title: "金额",
       dataIndex: "amount",
       key: "amount",
-      render: (amount: number) => (
+      render: (amount: string) => (
         <span style={{ color: "#3f8600" }}>¥{Number(amount).toFixed(2)}</span>
       ),
     },
     {
-      title: "状态",
-      dataIndex: "status",
-      key: "status",
-    },
-    {
-      title: "备注",
-      dataIndex: "remark",
-      key: "remark",
-      render: (text: string) => text || "-",
+      title: "业务ID",
+      dataIndex: "business_id",
+      key: "business_id",
+      ellipsis: true,
     },
     {
       title: "时间",
@@ -90,36 +88,36 @@ export default function EarningsPage() {
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
-          <Card loading={summaryLoading}>
+          <Card loading={isLoading}>
             <Card.Meta
               title={<span style={{ fontSize: 14 }}>累计佣金（记账余额）</span>}
               description={
                 <span style={{ fontSize: 24, color: "#1677ff" }}>
-                  ¥{Number(summaryData?.data.total_commission ?? 0).toFixed(2)}
+                  ¥{Number(summary?.pending_balance ?? 0).toFixed(2)}
                 </span>
               }
             />
           </Card>
         </Col>
         <Col span={8}>
-          <Card loading={summaryLoading}>
+          <Card loading={isLoading}>
             <Card.Meta
               title={<span style={{ fontSize: 14 }}>已提现金额</span>}
               description={
                 <span style={{ fontSize: 24 }}>
-                  ¥{Number(summaryData?.data.withdrawn_total ?? 0).toFixed(2)}
+                  ¥{Number(summary?.withdrawn_total ?? 0).toFixed(2)}
                 </span>
               }
             />
           </Card>
         </Col>
         <Col span={8}>
-          <Card loading={summaryLoading}>
+          <Card loading={isLoading}>
             <Card.Meta
               title={<span style={{ fontSize: 14 }}>可用余额</span>}
               description={
                 <span style={{ fontSize: 24, color: "#3f8600" }}>
-                  ¥{Number(summaryData?.data.available_balance ?? 0).toFixed(2)}
+                  ¥{Number(summary?.available_balance ?? 0).toFixed(2)}
                 </span>
               }
             />
@@ -142,13 +140,13 @@ export default function EarningsPage() {
         </div>
         <Table<EarningsRecord>
           columns={columns}
-          dataSource={recordsData?.data ?? []}
-          loading={recordsLoading}
+          dataSource={data?.records ?? []}
+          loading={isLoading}
           rowKey="id"
           pagination={{
             current: page,
             pageSize: PAGE_SIZE,
-            total: recordsData?.total ?? 0,
+            total: data?.total ?? 0,
             onChange: (p) => setPage(p),
             showSizeChanger: false,
           }}
