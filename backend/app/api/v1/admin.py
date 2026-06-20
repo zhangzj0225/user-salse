@@ -16,7 +16,9 @@ from app.schemas.ticket import (
     RejectTicketRequest,
     TicketActionResponse,
 )
+from app.schemas.admin_user import UserDetail, UserListResponse
 from app.services.recharge_service import RechargeService, get_recharge_service
+from app.services.user_management_service import UserManagementService, get_user_management_service
 from app.services.withdrawal_service import WithdrawalService, get_withdrawal_service
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,49 @@ def approve_recharge_endpoint(
             raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": RechargeInfo.model_validate(recharge).model_dump()}
+
+
+# ---- 用户管理（Story 4.1）----
+
+_VALID_ROLES = ("user", "member", "distributor", "agent")
+
+
+@router.get("/users", response_model=UserListResponse)
+def list_users_endpoint(
+    search: Optional[str] = Query(None, description="搜索邮箱/昵称"),
+    role: Optional[str] = Query(None, description="角色筛选: user/member/distributor/agent"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+    service: UserManagementService = Depends(get_user_management_service),
+):
+    """管理员查看用户列表，支持搜索和角色筛选。"""
+    if role is not None and role not in _VALID_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的角色参数，允许值: {_VALID_ROLES}",
+        )
+
+    users, total = service.list_users(db, search=search, role=role, limit=limit, offset=offset)
+    return {"users": users, "total": total}
+
+
+@router.get("/users/{user_id}", response_model=UserDetail)
+def get_user_detail_endpoint(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+    service: UserManagementService = Depends(get_user_management_service),
+):
+    """管理员查看用户详情：基本信息 + 团队统计 + 收益汇总。"""
+    try:
+        result = service.get_user_detail(user_id, db)
+    except ValueError as e:
+        if "不存在" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
 
 
 # ---- 工单管理（Story 3.13）----
