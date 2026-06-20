@@ -6,6 +6,7 @@ import json, os, sys, time, urllib.request as ur
 from decimal import Decimal
 
 os.environ.setdefault("ENV", "dev")
+sys.path.insert(0, "d:/user-salse/backend")  # Ensure correct module path
 
 BASE = "http://127.0.0.1:8000"; MOCK = "123456"
 TS = str(int(time.time()))[-4:]; results = []
@@ -51,7 +52,6 @@ def login_user(email):
 
 def seed_user(email, parent_id, role="user"):
     """Direct DB insert to bypass register verification code issue"""
-    sys.path.insert(0, "D:/workspace/user-salse/backend")
     from app.core.database import get_session_local
     from app.models.user import User
     from app.models.invite_code import InviteCode
@@ -278,8 +278,7 @@ print()
 # GAP5: Invite Code Exhaustion
 # ═══════════════════════════════════════════
 print("=== GAP5: Invite Code Exhaustion ===")
-# Query DB directly for used codes (bypass listing API known issue)
-sys.path.insert(0, "D:/workspace/user-salse/backend")
+# Query DB directly for used codes
 from app.core.database import get_session_local as gsl2
 from app.models.invite_code import InviteCode as ICModel2
 db3 = gsl2()()
