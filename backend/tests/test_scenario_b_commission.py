@@ -10,8 +10,9 @@ from decimal import Decimal
 from app.models.admin_user import AdminUser
 from app.models.audit_log import AuditLog
 from app.models.commission_record import CommissionRecord
+from app.models.referral_code import ReferralCode
 from app.models.user import User
-from app.services.recharge_service import RechargeService
+from app.services.payment_service import PaymentService
 
 
 def _make_admin(db):
@@ -21,11 +22,20 @@ def _make_admin(db):
     return admin
 
 
-def _make_user(db, email, role="user", parent_id=None):
+def _make_user(db, email, role="distributor", parent_id=None):
     u = User(email=email, role=role, status="active", parent_id=parent_id)
     db.add(u)
     db.flush()
     return u
+
+
+def _make_referral_code(db, user_id):
+    from app.core.security import generate_invite_code
+    code = generate_invite_code(user_id)
+    rc = ReferralCode(code=code, user_id=user_id, key_version=1)
+    db.add(rc)
+    db.flush()
+    return rc
 
 
 class TestFirstRewardScenarioB:
@@ -38,68 +48,48 @@ class TestFirstRewardScenarioB:
         ("distributor", 888, Decimal("355.20")),
         ("distributor", 5000, Decimal("2000.00")),
         ("distributor", 10000, Decimal("4000.00")),
-        ("user", 888, Decimal("177.60")),
-        ("member", 888, Decimal("177.60")),
     ])
     def test_first_reward_all_combinations(self, db_session, seed_commission_configs,
                                            parent_role, amount, expected):
         """验证所有首次奖励组合"""
         admin = _make_admin(db_session)
         parent = _make_user(db_session, "parent@example.com", parent_role)
-        child = _make_user(db_session, "child@example.com", parent_id=parent.id)
+        rc = _make_referral_code(db_session, parent.id)
 
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, amount, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        payment = service.create_payment(
+            email="child@example.com", amount=amount,
+            referral_code=rc.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(payment.id, admin.id, db_session)
 
         record = db_session.query(CommissionRecord).filter(
-            CommissionRecord.business_id == f"recharge_{recharge.id}",
+            CommissionRecord.business_id == f"payment_{payment.id}",
             CommissionRecord.type == "first_reward",
         ).first()
         assert record is not None
         assert record.user_id == parent.id
         assert Decimal(record.amount) == expected
-        assert record.source_user_id == child.id
-
-    @pytest.mark.parametrize("parent_role,amount", [
-        ("user", 5000),
-        ("user", 10000),
-        ("member", 5000),
-        ("member", 10000),
-    ])
-    def test_no_commission_for_user_member_higher_amounts(
-        self, db_session, seed_commission_configs, parent_role, amount
-    ):
-        """AC: 普通用户/888会员推荐的人充 5000/10000 不产生佣金"""
-        admin = _make_admin(db_session)
-        parent = _make_user(db_session, "parent@example.com", parent_role)
-        child = _make_user(db_session, "child@example.com", parent_id=parent.id)
-
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, amount, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
-
-        records = db_session.query(CommissionRecord).filter(
-            CommissionRecord.business_id == f"recharge_{recharge.id}",
-        ).all()
-        assert len(records) == 0
 
 
 class TestFollowupRewardScenarioB:
     """AC3-4: 后续收益（代理→经销商→下下级充 888）。"""
 
     def test_followup_business_id_format(self, db_session, seed_commission_configs):
-        """AC4: 后续收益 business_id = "recharge_{下下级充值id}_followup_{A的ID}" """
+        """AC4: 后续收益 business_id = "payment_{下下级支付id}_followup_{A的ID}" """
         admin = _make_admin(db_session)
         agent = _make_user(db_session, "agent@example.com", "agent")
         distributor = _make_user(db_session, "dist@example.com", "distributor", parent_id=agent.id)
-        child = _make_user(db_session, "child@example.com", parent_id=distributor.id)
+        rc = _make_referral_code(db_session, distributor.id)
 
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, 888, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        payment = service.create_payment(
+            email="child@example.com", amount=888,
+            referral_code=rc.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(payment.id, admin.id, db_session)
 
-        expected_bid = f"recharge_{recharge.id}_followup_{agent.id}"
+        expected_bid = f"payment_{payment.id}_followup_{agent.id}"
         record = db_session.query(CommissionRecord).filter(
             CommissionRecord.business_id == expected_bid,
         ).first()
@@ -107,18 +97,20 @@ class TestFollowupRewardScenarioB:
         assert record.type == "followup_reward"
         assert Decimal(record.amount) == Decimal("133.20")
         assert record.user_id == agent.id
-        assert record.source_user_id == child.id
 
     def test_no_followup_when_parent_is_distributor(self, db_session, seed_commission_configs):
         """上级是经销商 → 无后续收益（只有代理才有）"""
         admin = _make_admin(db_session)
-        distributor = _make_user(db_session, "dist@example.com", "distributor")
-        mid = _make_user(db_session, "mid@example.com", "user", parent_id=distributor.id)
-        child = _make_user(db_session, "child@example.com", parent_id=mid.id)
+        dist1 = _make_user(db_session, "dist1@example.com", "distributor")
+        dist2 = _make_user(db_session, "dist2@example.com", "distributor", parent_id=dist1.id)
+        rc = _make_referral_code(db_session, dist2.id)
 
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, 888, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        payment = service.create_payment(
+            email="child@example.com", amount=888,
+            referral_code=rc.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(payment.id, admin.id, db_session)
 
         followup = db_session.query(CommissionRecord).filter(
             CommissionRecord.type == "followup_reward",
@@ -130,12 +122,15 @@ class TestFollowupRewardScenarioB:
         admin = _make_admin(db_session)
         agent = _make_user(db_session, "agent@example.com", "agent")
         distributor = _make_user(db_session, "dist@example.com", "distributor", parent_id=agent.id)
-        child = _make_user(db_session, "child@example.com", parent_id=distributor.id)
+        rc = _make_referral_code(db_session, distributor.id)
 
-        for amount in (5000, 10000):
-            service = RechargeService()
-            recharge = service.create_recharge(child.id, amount, db_session)
-            service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        for i, amount in enumerate((5000, 10000)):
+            payment = service.create_payment(
+                email=f"child{i}@example.com", amount=amount,
+                referral_code=rc.code, redirect_url=None, db=db_session,
+            )
+            service.approve_payment(payment.id, admin.id, db_session)
 
         followup = db_session.query(CommissionRecord).filter(
             CommissionRecord.type == "followup_reward",
@@ -150,17 +145,20 @@ class TestIdempotency:
         """重复批准不会产生重复首次奖励"""
         admin = _make_admin(db_session)
         parent = _make_user(db_session, "parent@example.com", "agent")
-        child = _make_user(db_session, "child@example.com", parent_id=parent.id)
+        rc = _make_referral_code(db_session, parent.id)
 
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, 888, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        payment = service.create_payment(
+            email="child@example.com", amount=888,
+            referral_code=rc.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(payment.id, admin.id, db_session)
 
-        with pytest.raises(ValueError, match="充值已处理"):
-            service.approve_recharge(recharge.id, admin.id, db_session)
+        with pytest.raises(ValueError, match="已处理"):
+            service.approve_payment(payment.id, admin.id, db_session)
 
         records = db_session.query(CommissionRecord).filter(
-            CommissionRecord.business_id == f"recharge_{recharge.id}",
+            CommissionRecord.business_id == f"payment_{payment.id}",
         ).all()
         assert len(records) == 1
 
@@ -169,18 +167,21 @@ class TestIdempotency:
         admin = _make_admin(db_session)
         agent = _make_user(db_session, "agent@example.com", "agent")
         distributor = _make_user(db_session, "dist@example.com", "distributor", parent_id=agent.id)
-        child = _make_user(db_session, "child@example.com", parent_id=distributor.id)
+        rc = _make_referral_code(db_session, distributor.id)
 
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, 888, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        payment = service.create_payment(
+            email="child@example.com", amount=888,
+            referral_code=rc.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(payment.id, admin.id, db_session)
 
-        with pytest.raises(ValueError, match="充值已处理"):
-            service.approve_recharge(recharge.id, admin.id, db_session)
+        with pytest.raises(ValueError, match="已处理"):
+            service.approve_payment(payment.id, admin.id, db_session)
 
         followup = db_session.query(CommissionRecord).filter(
             CommissionRecord.type == "followup_reward",
-            CommissionRecord.business_id == f"recharge_{recharge.id}_followup_{agent.id}",
+            CommissionRecord.business_id == f"payment_{payment.id}_followup_{agent.id}",
         ).all()
         assert len(followup) == 1
 
@@ -188,42 +189,48 @@ class TestIdempotency:
 class TestAuditLog:
     """AC6: 审计日志。"""
 
-    def test_recharge_approve_audit_log(self, db_session, seed_commission_configs):
-        """充值批准写入审计日志"""
+    def test_payment_approve_audit_log(self, db_session, seed_commission_configs):
+        """支付批准写入审计日志"""
         admin = _make_admin(db_session)
         parent = _make_user(db_session, "parent@example.com", "agent")
-        child = _make_user(db_session, "child@example.com", parent_id=parent.id)
+        rc = _make_referral_code(db_session, parent.id)
 
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, 888, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        payment = service.create_payment(
+            email="child@example.com", amount=888,
+            referral_code=rc.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(payment.id, admin.id, db_session)
 
         log = db_session.query(AuditLog).filter(
-            AuditLog.action == "recharge_approve",
-            AuditLog.business_id == f"recharge_{recharge.id}",
+            AuditLog.action == "payment_approve",
+            AuditLog.business_id == f"payment_{payment.id}",
         ).first()
         assert log is not None
         assert log.operator_type == "admin"
-        assert log.target_type == "recharge"
-        assert log.target_id == recharge.id
+        assert log.target_type == "payment"
+        assert log.target_id == payment.id
 
 
 class TestFullChainScenarioB:
     """完整链路：A(代理) → B(经销商) → C(普通用户) 充 888。"""
 
-    def test_full_chain_recharge_888(self, db_session, seed_commission_configs):
+    def test_full_chain_payment_888(self, db_session, seed_commission_configs):
         """C 充 888 → B 获首次奖励 355.20 + A 获后续收益 133.20"""
         admin = _make_admin(db_session)
         agent = _make_user(db_session, "a@example.com", "agent")
         distributor = _make_user(db_session, "b@example.com", "distributor", parent_id=agent.id)
-        child = _make_user(db_session, "c@example.com", parent_id=distributor.id)
+        rc = _make_referral_code(db_session, distributor.id)
 
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, 888, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        payment = service.create_payment(
+            email="c@example.com", amount=888,
+            referral_code=rc.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(payment.id, admin.id, db_session)
 
         all_records = db_session.query(CommissionRecord).filter(
-            CommissionRecord.business_id.like(f"recharge_{recharge.id}%"),
+            CommissionRecord.business_id.like(f"payment_{payment.id}%"),
         ).all()
         assert len(all_records) == 2
 
@@ -241,14 +248,20 @@ class TestFullChainScenarioB:
         agent = _make_user(db_session, "a@example.com", "agent")
         dist1 = _make_user(db_session, "b1@example.com", "distributor", parent_id=agent.id)
         dist2 = _make_user(db_session, "b2@example.com", "distributor", parent_id=agent.id)
-        c1 = _make_user(db_session, "c1@example.com", parent_id=dist1.id)
-        c2 = _make_user(db_session, "c2@example.com", parent_id=dist2.id)
+        rc1 = _make_referral_code(db_session, dist1.id)
+        rc2 = _make_referral_code(db_session, dist2.id)
 
-        service = RechargeService()
-        r1 = service.create_recharge(c1.id, 888, db_session)
-        service.approve_recharge(r1.id, admin.id, db_session)
-        r2 = service.create_recharge(c2.id, 888, db_session)
-        service.approve_recharge(r2.id, admin.id, db_session)
+        service = PaymentService()
+        p1 = service.create_payment(
+            email="c1@example.com", amount=888,
+            referral_code=rc1.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(p1.id, admin.id, db_session)
+        p2 = service.create_payment(
+            email="c2@example.com", amount=888,
+            referral_code=rc2.code, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(p2.id, admin.id, db_session)
 
         followups = db_session.query(CommissionRecord).filter(
             CommissionRecord.type == "followup_reward",

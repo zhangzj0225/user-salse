@@ -15,7 +15,7 @@ TS = make_ts()
 os.makedirs(Config.E2E_OUTPUT_DIR, exist_ok=True)
 
 
-def login_via_ui(pg, email):
+async def login_via_ui(pg, email):
     """Real browser login: clear auth, fill form, click buttons."""
     await pg.goto(f"{UI}/login", wait_until="networkidle")
     await pg.wait_for_timeout(500)
@@ -52,8 +52,8 @@ async def main():
 
     # Find an existing agent
     users = api("GET", "/api/v1/admin/users?role=agent&limit=1", t=at)
-    if users.get("data"):
-        a_email = users["data"][0]["email"]
+    if users.get("users"):
+        a_email = users["users"][0]["email"]
     else:
         a_email = f"vis_agent_{TS}@test.com"
         r = login_as(a_email)
@@ -69,8 +69,8 @@ async def main():
 
     # Find distributor
     users = api("GET", "/api/v1/admin/users?role=distributor&limit=1", t=at)
-    if users.get("data"):
-        d_email = users["data"][0]["email"]
+    if users.get("users"):
+        d_email = users["users"][0]["email"]
     else:
         ic = api("POST", "/api/v1/invite-codes", t=atok)["data"]["code"]
         d_email = f"vis_dist_{TS}@test.com"

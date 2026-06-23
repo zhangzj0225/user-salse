@@ -10,11 +10,11 @@ class TestTeamAPI:
         assert resp.status_code == 401
 
     def test_team_empty(self, client, db_session):
-        user = User(email="solo@example.com", role="user", status="active")
+        user = User(email="solo@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/users/me/team",
             headers={"Authorization": f"Bearer {token}"},
@@ -30,8 +30,8 @@ class TestTeamAPI:
         db_session.add(agent)
         db_session.commit()
 
-        c1 = User(email="c1@example.com", role="user", status="active", parent_id=agent.id, nickname="小C1")
-        c2 = User(email="c2@example.com", role="user", status="active", parent_id=agent.id, nickname="小C2")
+        c1 = User(email="c1@example.com", role="distributor", status="active", parent_id=agent.id, nickname="小C1")
+        c2 = User(email="c2@example.com", role="distributor", status="active", parent_id=agent.id, nickname="小C2")
         db_session.add_all([c1, c2])
         db_session.commit()
 
@@ -48,7 +48,7 @@ class TestTeamAPI:
         # S5: 验证子节点字段
         child = data["root"]["children"][0]
         assert child["nickname"] == "小C1"
-        assert child["role"] == "user"
+        assert child["role"] == "distributor"
         assert "created_at" in child
         assert child["direct_downline_count"] == 0
         assert child["children"] == []
@@ -62,11 +62,11 @@ class TestUpstreamAPI:
         assert resp.status_code == 401
 
     def test_upstream_no_parent(self, client, db_session):
-        user = User(email="root@example.com", role="user", status="active")
+        user = User(email="root@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/users/me/upstream",
             headers={"Authorization": f"Bearer {token}"},
@@ -79,11 +79,11 @@ class TestUpstreamAPI:
         db_session.add(agent)
         db_session.commit()
 
-        child = User(email="child@example.com", role="user", status="active", parent_id=agent.id)
+        child = User(email="child@example.com", role="distributor", status="active", parent_id=agent.id)
         db_session.add(child)
         db_session.commit()
 
-        token = create_access_token(subject=child.id, role="user", token_type="user")
+        token = create_access_token(subject=child.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/users/me/upstream",
             headers={"Authorization": f"Bearer {token}"},

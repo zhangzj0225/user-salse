@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 
 # 默认配置项（应用启动时自动初始化）
 DEFAULT_CONFIGS = {
-    "recharge_amount_888": ("888", "888元充值金额", "decimal"),
-    "recharge_amount_5000": ("5000", "5000元充值金额", "decimal"),
-    "recharge_amount_10000": ("10000", "10000元充值金额", "decimal"),
+    "payment_amount_888": ("888", "888元支付金额", "decimal"),
+    "payment_amount_5000": ("5000", "5000元支付金额", "decimal"),
+    "payment_amount_10000": ("10000", "10000元支付金额", "decimal"),
     "quota_for_agent": ("22", "代理可售额度", "int"),
     "quota_for_distributor": ("11", "经销商可售额度", "int"),
     "min_withdrawal_amount": ("100", "最低提现金额", "decimal"),

@@ -13,12 +13,13 @@ class User(Base):
     nickname = Column(String(64), nullable=True)
     avatar_url = Column(String(256), nullable=True)
     role = Column(
-        Enum("user", "member", "distributor", "agent", name="user_role"),
-        server_default="user",
+        Enum("distributor", "agent", name="user_role"),
+        server_default="distributor",
         nullable=False,
     )
     parent_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    invite_code = Column(String(32), unique=True, nullable=True)
+    referral_code = Column(String(32), unique=True, nullable=True)
+    referral_code_generated = Column(Integer, server_default=text("0"), nullable=False)
     account_quota = Column(Integer, server_default=text("0"), nullable=False)
     account_used = Column(Integer, server_default=text("0"), nullable=False)
     status = Column(

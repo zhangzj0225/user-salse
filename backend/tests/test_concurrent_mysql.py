@@ -66,7 +66,7 @@ def _seed_user(mysql_session_factory):
     Session = mysql_session_factory
     db = Session()
     try:
-        user = User(email="concurrent@example.com", role="user", status="active")
+        user = User(email="concurrent@example.com", role="distributor", status="active")
         db.add(user)
         db.flush()
         # 给用户 1000 元佣金余额
@@ -120,27 +120,25 @@ class TestConcurrentWithdrawal:
         assert len(successes) == 1, f"Expected 1 success, got {len(successes)}: {results}"
         assert len(errors) == 1, f"Expected 1 error, got {len(errors)}: {results}"
 
-    def test_concurrent_recharge_approve_no_double_role(self, mysql_session_factory):
-        """两个管理员同时批准同一充值 — 应只成功一次。"""
+    def test_concurrent_payment_approve_no_double_role(self, mysql_session_factory):
+        """两个管理员同时批准同一支付 — 应只成功一次。"""
         from app.models.admin_user import AdminUser
-        from app.models.recharge import Recharge
-        from app.services.recharge_service import RechargeService
+        from app.models.payment import Payment
+        from app.services.payment_service import PaymentService
 
         Session = mysql_session_factory
         db = Session()
         try:
             admin = AdminUser(username="admin", password_hash="hash", role="super_admin")
             db.add(admin)
-            user = User(email="approve@example.com", role="user", status="active")
-            db.add(user)
             db.flush()
-            recharge = Recharge(
-                user_id=user.id, amount=888, target_role="member",
-                status="pending", pending_user_key=user.id,
+            payment = Payment(
+                email="approve@example.com", amount=888, target_role="member_license",
+                status="pending",
             )
-            db.add(recharge)
+            db.add(payment)
             db.commit()
-            recharge_id = recharge.id
+            payment_id = payment.id
             admin_id = admin.id
         finally:
             db.close()
@@ -153,8 +151,8 @@ class TestConcurrentWithdrawal:
             db = Session()
             try:
                 barrier.wait()
-                service = RechargeService()
-                result = service.approve_recharge(recharge_id, admin_id, db)
+                service = PaymentService()
+                result = service.approve_payment(payment_id, admin_id, db)
                 results.append(("success", result.id))
             except Exception as e:
                 results.append(("error", str(e)))
@@ -187,13 +185,13 @@ class TestConcurrentLicenseActivate:
         Session = mysql_session_factory
         db = Session()
         try:
-            user = User(email="license@example.com", role="member", status="active")
+            user = User(email="license@example.com", role="distributor", status="active")
             db.add(user)
             db.flush()
-            code = _generate_license_code(user.id, "license@example.com", nonce="abcd1234")
+            code = _generate_license_code(user.id, nonce="abcd1234")
             lic = License(
-                code=code, user_id=user.id, email="license@example.com",
-                source="recharge", source_id=1, status="unused",
+                code=code, user_id=user.id,
+                source="payment", source_id=1, status="unused",
             )
             db.add(lic)
             db.commit()
@@ -209,7 +207,7 @@ class TestConcurrentLicenseActivate:
             try:
                 barrier.wait()
                 service = LicenseService()
-                result = service.verify_and_activate(code, "license@example.com", db)
+                result = service.activate_license(code, "license@example.com", None, db)
                 results.append(result)
             finally:
                 db.close()

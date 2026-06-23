@@ -1,6 +1,5 @@
 """Integration tests for auth API endpoints."""
 
-from app.models.invite_code import InviteCode
 from app.models.user import User
 
 
@@ -50,7 +49,7 @@ class TestLogin:
         self._send_code(client)
         response = client.post("/api/v1/auth/login", json={"email": "test@example.com", "code": "123456"})
         user_data = response.json()["data"]["user"]
-        assert user_data["role"] == "user"
+        assert user_data["role"] == "distributor"
         assert user_data["status"] == "active"
 
     def test_returns_same_user_on_second_login(self, client):
@@ -62,86 +61,6 @@ class TestLogin:
         second = client.post("/api/v1/auth/login", json={"email": "test@example.com", "code": "123456"})
         second_id = second.json()["data"]["user"]["id"]
         assert first_id == second_id
-
-
-class TestRegister:
-    def _create_parent_with_invite_code(self, client, db_session, code: str = "INVCODE01") -> str:
-        """Login to seed a root user, then insert an invite code for them."""
-        client.post("/api/v1/auth/send-email-code", json={"email": "parent@example.com"})
-        resp = client.post("/api/v1/auth/login", json={"email": "parent@example.com", "code": "123456"})
-        parent_id = resp.json()["data"]["user"]["id"]
-
-        ic = InviteCode(code=code, generator_id=parent_id)
-        db_session.add(ic)
-        db_session.commit()
-        return code
-
-    def _send_register_code(self, client, email: str = "new@example.com"):
-        client.post("/api/v1/auth/send-email-code", json={"email": email, "scene": "register"})
-
-    def test_register_returns_200_with_token_and_user(self, client, db_session):
-        invite_code = self._create_parent_with_invite_code(client, db_session)
-        self._send_register_code(client)
-        response = client.post("/api/v1/auth/register", json={
-            "email": "new@example.com",
-            "code": "123456",
-            "invite_code": invite_code,
-        })
-        assert response.status_code == 200
-        data = response.json()["data"]
-        assert "token" in data
-        assert data["user"]["email"] == "new@example.com"
-
-    def test_register_establishes_parent_id(self, client, db_session):
-        invite_code = self._create_parent_with_invite_code(client, db_session, code="INVCODE02")
-        self._send_register_code(client)
-        response = client.post("/api/v1/auth/register", json={
-            "email": "new@example.com",
-            "code": "123456",
-            "invite_code": invite_code,
-        })
-        assert response.status_code == 200
-        new_user_id = response.json()["data"]["user"]["id"]
-        user = db_session.query(User).filter(User.id == new_user_id).first()
-        assert user.parent_id is not None
-
-    def test_register_returns_422_on_missing_invite_code(self, client):
-        self._send_register_code(client)
-        response = client.post("/api/v1/auth/register", json={
-            "email": "new@example.com",
-            "code": "123456",
-        })
-        assert response.status_code == 422
-
-    def test_register_returns_400_on_invalid_invite_code(self, client, db_session):
-        self._send_register_code(client)
-        response = client.post("/api/v1/auth/register", json={
-            "email": "new@example.com",
-            "code": "123456",
-            "invite_code": "NONEXISTENT",
-        })
-        assert response.status_code == 400
-
-    def test_register_returns_400_on_wrong_code(self, client, db_session):
-        invite_code = self._create_parent_with_invite_code(client, db_session, code="INVCODE03")
-        self._send_register_code(client)
-        response = client.post("/api/v1/auth/register", json={
-            "email": "new@example.com",
-            "code": "999999",
-            "invite_code": invite_code,
-        })
-        assert response.status_code == 400
-
-    def test_register_returns_400_on_duplicate_email(self, client, db_session):
-        invite_code = self._create_parent_with_invite_code(client, db_session, code="INVCODE04")
-        # parent@example.com was already created during invite code setup
-        self._send_register_code(client, "parent@example.com")
-        response = client.post("/api/v1/auth/register", json={
-            "email": "parent@example.com",
-            "code": "123456",
-            "invite_code": invite_code,
-        })
-        assert response.status_code == 400
 
 
 class TestUsersMe:
@@ -171,7 +90,7 @@ class TestUsersMe:
 
         now = datetime.now(timezone.utc)
         expire = now - timedelta(hours=1)
-        payload = {"sub": 1, "role": "user", "type": "user", "iat": now, "exp": expire}
+        payload = {"sub": 1, "role": "distributor", "type": "user", "iat": now, "exp": expire}
         expired_token = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
         response = client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {expired_token}"})

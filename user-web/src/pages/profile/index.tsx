@@ -2,22 +2,18 @@ import {
   Card,
   Descriptions,
   Tag,
-  Button,
   Skeleton,
   Spin,
-  App as AntdApp,
   Space,
   Typography,
 } from "antd";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { userApi } from "../../services/user";
 import dayjs from "dayjs";
 
 const { Text } = Typography;
 
 const roleLabelMap: Record<string, string> = {
-  user: "普通用户",
-  member: "888会员",
   distributor: "经销商",
   agent: "代理",
 };
@@ -29,9 +25,6 @@ const statusLabelMap: Record<string, string> = {
 };
 
 export default function ProfilePage() {
-  const { message } = AntdApp.useApp();
-  const queryClient = useQueryClient();
-
   const { data: profileData, isLoading: profileLoading } = useQuery({
     queryKey: ["userProfile"],
     queryFn: () => userApi.getProfile(),
@@ -42,12 +35,9 @@ export default function ProfilePage() {
     queryFn: () => userApi.getLicense(),
   });
 
-  const inviteMutation = useMutation({
-    mutationFn: () => userApi.generateInviteCode(),
-    onSuccess: (res) => {
-      message.success(`邀请码已生成：${res.data.code}`);
-      queryClient.invalidateQueries({ queryKey: ["userProfile"] });
-    },
+  const { data: referralData, isLoading: referralLoading } = useQuery({
+    queryKey: ["referralCode"],
+    queryFn: () => userApi.getReferralCode(),
   });
 
   const profile = profileData?.data;
@@ -78,16 +68,18 @@ export default function ProfilePage() {
         </Card>
       </Spin>
 
-      <Card title="邀请码" style={{ marginBottom: 16 }}>
-        <Space direction="vertical" size="middle">
-          <Button
-            type="primary"
-            loading={inviteMutation.isPending}
-            onClick={() => inviteMutation.mutate()}
-          >
-            生成新邀请码
-          </Button>
-        </Space>
+      <Card title="推荐码" style={{ marginBottom: 16 }}>
+        {referralLoading ? (
+          <Skeleton active paragraph={{ rows: 1 }} />
+        ) : referralData?.data?.code ? (
+          <Space direction="vertical" size="middle">
+            <Text copyable style={{ fontSize: 18, fontWeight: 600 }}>
+              {referralData.data.code}
+            </Text>
+          </Space>
+        ) : (
+          <Text type="secondary">暂无推荐码</Text>
+        )}
       </Card>
 
       <Card title="授权凭证">
@@ -96,7 +88,6 @@ export default function ProfilePage() {
         ) : licenseData ? (
           <Descriptions column={2} bordered>
             <Descriptions.Item label="授权码">{licenseData.code}</Descriptions.Item>
-            <Descriptions.Item label="邮箱">{licenseData.email}</Descriptions.Item>
             <Descriptions.Item label="来源">{licenseData.source}</Descriptions.Item>
             <Descriptions.Item label="状态">
               <Tag color={licenseData.status === "unused" ? "green" : "orange"}>

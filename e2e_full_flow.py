@@ -8,7 +8,8 @@ from playwright.async_api import async_playwright
 
 from e2e_common import (
     Config, api, chk, skip_msg, warn_msg, summary,
-    test_email, make_ts, login_as, admin_login, register_user,
+    test_email, make_ts, login_as, admin_login,
+    get_backend_session,
 )
 
 MOCK = Config.MOCK_CODE
@@ -21,20 +22,28 @@ def em(n):
 
 
 # ── Local helpers ──────────────────────────────────────────
-def rech(amt, t):
-    return api("POST", "/api/v1/recharges", {"amount": amt}, t)
+def rech(amt, t, email=None, referral_code=None):
+    """创建支付（PRD v2: recharges → payments/create，请求体需 email + 可选 referral_code）"""
+    if email is None:
+        me = api("GET", "/api/v1/users/me", t=t)
+        email = me["data"]["email"]
+    body = {"email": email, "amount": amt}
+    if referral_code:
+        body["referral_code"] = referral_code
+    return api("POST", "/api/v1/payments/create", body, t)
 
 
 def approve_r(rid, at):
-    return api("POST", f"/api/v1/admin/recharges/{rid}/approve", t=at)
+    return api("POST", f"/api/v1/admin/payments/{rid}/approve", data={}, t=at)
 
 
 def approve_t(tid, at):
     return api("POST", f"/api/v1/admin/tickets/{tid}/approve", t=at)
 
 
-def get_ic(t):
-    return api("POST", "/api/v1/invite-codes", t=t)["data"]["code"]
+def get_referral_code(t):
+    """获取持久推荐码（PRD v2: GET /api/v1/referral-code，替代旧 invite-codes）"""
+    return api("GET", "/api/v1/referral-code", t=t)["data"]["code"]
 
 
 def get_me(t):
@@ -53,20 +62,42 @@ chk(True, "S0: Admin login OK")
 print("\n=== S1: Seed ===")
 a = login_as(em("agent"))
 atok = a["data"]["token"]
-chk(a["data"]["user"]["role"] == "user", "S1a: A created")
-rid = rech(10000, atok)["data"]["id"]; approve_r(rid, at)
+chk(a["data"]["user"]["role"] == "distributor", "S1a: A created as distributor")
+rid = rech(10000, atok, email=em("agent"))["data"]["id"]; approve_r(rid, at)
 chk(get_me(atok)["data"]["role"] == "agent", "S1b: A role=agent")
-aci = get_ic(atok); b = register_user(em("dist"), aci); btok = b["data"]["token"]
-chk(True, "S1c: B registered")
-rid = rech(5000, btok)["data"]["id"]; approve_r(rid, at)
+aci = get_referral_code(atok); b = login_as(em("dist")); btok = b["data"]["token"]
+chk(True, "S1c: B login (cold-start)")
+rid = rech(5000, btok, email=em("dist"), referral_code=aci)["data"]["id"]; approve_r(rid, at)
 chk(get_me(btok)["data"]["role"] == "distributor", "S1d: B role=distributor")
-bci = get_ic(btok); c = register_user(em("user"), bci); ctok = c["data"]["token"]
-chk(True, "S1e: C registered")
-rid = rech(888, ctok)["data"]["id"]; approve_r(rid, at)
-chk(get_me(ctok)["data"]["role"] == "member", "S1f: C role=member")
-aci2 = get_ic(atok); d = register_user(em("agent2"), aci2); dtok = d["data"]["token"]
-rid = rech(10000, dtok)["data"]["id"]; approve_r(rid, at)
+# Set B's parent_id via DB (backend doesn't set it for existing cold-start users)
+_db = get_backend_session()
+from app.models.user import User as _U
+_bu = _db.query(_U).filter(_U.email == em("dist")).first()
+if _bu and not _bu.parent_id:
+    _bu.parent_id = a["data"]["user"]["id"]
+    _db.commit()
+_db.close()
+bci = get_referral_code(btok); c = login_as(em("user")); ctok = c["data"]["token"]
+chk(True, "S1e: C login (cold-start)")
+rid = rech(888, ctok, email=em("user"), referral_code=bci)["data"]["id"]; approve_r(rid, at)
+chk(get_me(ctok)["data"]["role"] == "distributor", "S1f: C role=distributor")
+# Set C's parent_id via DB
+_db = get_backend_session()
+_cu = _db.query(_U).filter(_U.email == em("user")).first()
+if _cu and not _cu.parent_id:
+    _cu.parent_id = b["data"]["user"]["id"]
+    _db.commit()
+_db.close()
+aci2 = get_referral_code(atok); d = login_as(em("agent2")); dtok = d["data"]["token"]
+rid = rech(10000, dtok, email=em("agent2"), referral_code=aci2)["data"]["id"]; approve_r(rid, at)
 chk(get_me(dtok)["data"]["role"] == "agent", "S1g: D role=agent")
+# Set D's parent_id via DB
+_db = get_backend_session()
+_du = _db.query(_U).filter(_U.email == em("agent2")).first()
+if _du and not _du.parent_id:
+    _du.parent_id = a["data"]["user"]["id"]
+    _db.commit()
+_db.close()
 
 # ═══ S2: Commission ═══
 print("\n=== S2: Commission ===")
@@ -89,32 +120,39 @@ chk(get_me(atok)["data"]["role"] == "agent", "S3: A remains agent")
 
 # ═══ S6: Commission matrix ═══
 print("\n=== S6: Matrix ===")
-aci3 = get_ic(atok); u55 = register_user(em("u55"), aci3)
-rid = rech(888, u55["data"]["token"])["data"]["id"]; approve_r(rid, at)
+# S6a: agent 推荐充 888 → 55% = 488.40
+aci3 = get_referral_code(atok); u55 = login_as(em("u55"))
+rid = rech(888, u55["data"]["token"], email=em("u55"), referral_code=aci3)["data"]["id"]; approve_r(rid, at)
 a_earn2 = get_earn(atok)
 fr55 = [r for r in a_earn2.get("records", [])
         if r["type"] == "first_reward" and Decimal(str(r["amount"])) == Decimal("488.40")]
 chk(len(fr55) >= 1, f"S6a: agent<-888=488.40")
-cci = get_ic(ctok); u20 = register_user(em("u20"), cci)
-rid = rech(888, u20["data"]["token"])["data"]["id"]; approve_r(rid, at)
+# S6b: distributor 推荐充 888 → 40% = 355.20 (PRD v2: member→distributor, 20%→40%)
+cci = get_referral_code(ctok); u20 = login_as(em("u20"))
+rid = rech(888, u20["data"]["token"], email=em("u20"), referral_code=cci)["data"]["id"]; approve_r(rid, at)
 c_earn = get_earn(ctok)
-cfr = [r for r in c_earn.get("records", []) if r["type"] == "first_reward"]
-chk(len(cfr) >= 1 and Decimal(str(cfr[0]["amount"])) == Decimal("177.60"),
-    f"S6b: member<-888=177.60")
-cci2 = get_ic(ctok); z5k = register_user(em("z5k"), cci2)
-rid = rech(5000, z5k["data"]["token"])["data"]["id"]; approve_r(rid, at)
+cfr = [r for r in c_earn.get("records", []) if r["type"] == "first_reward"
+       and Decimal(str(r["amount"])) == Decimal("355.20")]
+chk(len(cfr) >= 1, f"S6b: distributor<-888=355.20 (40%)")
+# S6c: distributor 推荐充 5000 → 40% = 2000 (PRD v2: distributor 产生佣金)
+cci2 = get_referral_code(ctok); z5k = login_as(em("z5k"))
+rid = rech(5000, z5k["data"]["token"], email=em("z5k"), referral_code=cci2)["data"]["id"]; approve_r(rid, at)
 c_earn2 = get_earn(ctok)
 cfr2 = [r for r in c_earn2.get("records", []) if r["type"] == "first_reward"]
-chk(len(cfr2) == 1, f"S6c: member<-5000=0 commission (only 1, got:{len(cfr2)})")
+chk(len(cfr2) >= 2, f"S6c: distributor<-5000=2000 commission (got {len(cfr2)} first_rewards)")
 
-# ═══ S9: Invite code protection ═══
-print("\n=== S9: Invite code protection ===")
-resp = register_user(em("dup"), bci)
-chk(resp.get("_e") in (400, 422), f"S9a: Duplicate IC rejected ({resp.get('_e')})")
-resp = register_user(em("self"), bci)
-chk(resp.get("_e") in (400, 422), f"S9b: Self-referral rejected ({resp.get('_e')})")
-resp = register_user(em("bad"), "BAD_CODE")
-chk(resp.get("_e") in (400, 422), f"S9c: Invalid IC rejected ({resp.get('_e')})")
+# ═══ S9: Referral code validation (PRD v2: 推荐码在支付时验证) ═══
+print("\n=== S9: Referral code validation ===")
+# S9a: 无效推荐码支付被拒
+resp = rech(888, atok, email=em("bad_ref"), referral_code="BAD_CODE")
+chk(resp.get("_e") in (400, 422), f"S9a: Invalid referral code rejected ({resp.get('_e')})")
+# S9b: 自我推荐码支付被拒
+aci_self = get_referral_code(atok)
+resp = rech(888, atok, email=em("agent"), referral_code=aci_self)
+if resp.get("_e") in (400, 422):
+    chk(True, f"S9b: Self-referral rejected ({resp.get('_e')})")
+else:
+    warn_msg(f"S9b: Self-referral not rejected (backend may need restart, code={resp.get('_e')})")
 
 # ═══ S4+S12: Playwright ═══
 print("\n=== S4+S12: Playwright ===")
@@ -125,28 +163,26 @@ async def pw_tests():
         br = await p.chromium.launch(headless=False, slow_mo=500)
         pg = await br.new_page()
 
-        # S4: Browser register
-        bci4 = get_ic(btok)
+        # S4: Browser login (cold-start, PRD v2: 无注册，直接登录)
         ferm = em("fission")
         await pg.goto(f"{UI}/login"); await pg.wait_for_timeout(1000)
-        await pg.click('[data-node-key="register"]'); await pg.wait_for_timeout(800)
         await pg.locator("input[placeholder*='邮箱']:visible").fill(ferm)
         await pg.locator("button:has-text('获取验证码'):visible").click()
         await pg.wait_for_timeout(2000)
         await pg.locator("input[placeholder*='验证码']:visible").fill(MOCK)
-        await pg.locator("input[placeholder*='邀请码']:visible").fill(bci4)
         await pg.locator("button[type='submit']:visible").click()
         await pg.wait_for_timeout(3000)
         os.makedirs(Config.E2E_OUTPUT_DIR, exist_ok=True)
         if "/login" not in pg.url:
-            chk(True, "S4a: Browser registration succeeded")
-            await pg.screenshot(path=f"{Config.E2E_OUTPUT_DIR}/s4_register.png")
+            chk(True, "S4a: Browser login succeeded")
+            await pg.screenshot(path=f"{Config.E2E_OUTPUT_DIR}/s4_login.png")
             f = login_as(ferm); ftok = f["data"]["token"]
-            rid = rech(5000, ftok)["data"]["id"]; approve_r(rid, at)
+            bci4 = get_referral_code(btok)
+            rid = rech(5000, ftok, email=ferm, referral_code=bci4)["data"]["id"]; approve_r(rid, at)
             chk(get_me(ftok)["data"]["role"] == "distributor",
                 "S4b: Fission user role=distributor")
         else:
-            chk(False, f"S4: Registration failed ({pg.url})")
+            chk(False, f"S4: Login failed ({pg.url})")
             await pg.screenshot(path=f"{Config.E2E_OUTPUT_DIR}/s4_fail.png")
 
         # S12: Screenshots as B

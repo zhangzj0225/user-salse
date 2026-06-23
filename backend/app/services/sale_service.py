@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.email_verification_code import EmailVerificationCode
-from app.models.recharge import Recharge
+from app.models.payment import Payment
 from app.models.user import User
 from app.services.auth_service import _verify_email_code
 from app.services.license_service import LicenseService
@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 
 # 场景 A: 固定销售 888 会员
 SALE_AMOUNT = Decimal("888.00")
-SALE_TARGET_ROLE = "member"
+SALE_TARGET_ROLE = "member_license"
 SALE_VERIFY_SCENE = "sale_verify"
 
 
 class SaleService:
-    """额度销售服务（场景 A — 代客充值，不产生佣金）。
+    """额度销售服务（场景 A — 代客支付，不产生佣金）。
 
     邮箱验证流程：
     1. 前端调用 POST /auth/send-email-code (scene=sale_verify) 发送验证码
@@ -41,20 +41,20 @@ class SaleService:
         verification_code: str,
         db: Session,
     ) -> dict:
-        """额度销售：为客戶开通 888 会员。
+        """额度销售：为客户开通 888 会员。
 
         流程：
         1. 校验销售者资格（agent/distributor + 额度 > 0）
         2. 校验客户邮箱未被注册
         3. 校验邮箱验证码
         4. 消耗 1 个额度（行锁防并发）
-        5. 创建客户 User（role=member, parent_id=seller_id）
-        6. 创建 Recharge 记录（status=approved，供 sales_records 查询）
+        5. 创建客户 User（role=distributor, parent_id=seller_id）
+        6. 创建 Payment 记录（status=approved，供 sales_records 查询）
         7. 生成 License
         8. 审计日志
         9. 不调用 CommissionEngine（场景 A 不产生佣金）
 
-        返回: {"customer_id", "recharge_id", "remaining_quota"}
+        返回: {"customer_id", "payment_id", "remaining_quota"}
         """
         # 1. 校验销售者
         seller = db.query(User).filter(User.id == seller_id).first()
@@ -81,33 +81,34 @@ class SaleService:
             # 5. 创建客户
             customer = User(
                 email=customer_email,
-                role=SALE_TARGET_ROLE,
+                role="distributor",
                 status="active",
                 parent_id=seller_id,
             )
             db.add(customer)
             db.flush()
 
-            # 6. 创建 Recharge 记录（approved 状态，供 sales_records 查询）
+            # 6. 创建 Payment 记录（approved 状态，供 sales_records 查询）
             # F2: reviewed_by 不写 seller_id —— 该列 FK 指向 admin_users.id，
             # 写 User.id 在生产 MySQL 会 IntegrityError。sale 流程无管理员审核，
             # reviewed_by 留 null。销售者关系由 parent_id + 审计日志 business_id=sale_{id} 体现。
-            recharge = Recharge(
+            payment = Payment(
                 user_id=customer.id,
+                email=customer_email,
                 amount=SALE_AMOUNT,
                 target_role=SALE_TARGET_ROLE,
-                status="approved",
+                channel="offline",
+                status="paid",
                 reviewed_by=None,
                 reviewed_at=datetime.now(timezone.utc),
             )
-            db.add(recharge)
+            db.add(payment)
             db.flush()
 
             # 7. 生成 License
-            self._license_service.generate_for_recharge(
+            self._license_service.generate_for_payment(
                 user_id=customer.id,
-                email=customer.email,
-                recharge_id=recharge.id,
+                payment_id=payment.id,
                 target_role=SALE_TARGET_ROLE,
                 db=db,
             )
@@ -122,32 +123,32 @@ class SaleService:
                 old_value=None,
                 new_value={
                     "customer_email": customer_email,
-                    "role": SALE_TARGET_ROLE,
+                    "role": "distributor",
                     "parent_id": seller_id,
-                    "recharge_id": recharge.id,
+                    "payment_id": payment.id,
                     "amount": str(SALE_AMOUNT),
                 },
-                business_id=f"sale_{recharge.id}",
+                business_id=f"sale_{payment.id}",
             )
             db.add(log)
 
             db.commit()
             db.refresh(seller)
             db.refresh(customer)
-            db.refresh(recharge)
+            db.refresh(payment)
         except Exception:
             db.rollback()
             raise
 
         logger.info(
-            "Quota sale completed: seller=%d customer=%d recharge=%d remaining=%d",
-            seller_id, customer.id, recharge.id,
+            "Quota sale completed: seller=%d customer=%d payment=%d remaining=%d",
+            seller_id, customer.id, payment.id,
             seller.account_quota - seller.account_used,
         )
 
         return {
             "customer_id": customer.id,
-            "recharge_id": recharge.id,
+            "payment_id": payment.id,
             "remaining_quota": seller.account_quota - seller.account_used,
         }
 

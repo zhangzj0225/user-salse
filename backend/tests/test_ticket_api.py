@@ -8,7 +8,7 @@ from app.models.user import User
 
 
 def _setup_user_with_balance(db, email="user@example.com", balance="500.00"):
-    user = User(email=email, role="user", status="active")
+    user = User(email=email, role="distributor", status="active")
     db.add(user)
     db.commit()
     r = CommissionRecord(
@@ -30,7 +30,7 @@ class TestCreateTicketAPI:
     def test_create_success(self, client, db_session):
         user = _setup_user_with_balance(db_session)
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.post(
             "/api/v1/users/me/tickets",
             json={"amount": "200.00", "payment_method": "支付宝:xxx"},
@@ -44,7 +44,7 @@ class TestCreateTicketAPI:
     def test_below_minimum(self, client, db_session):
         user = _setup_user_with_balance(db_session)
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.post(
             "/api/v1/users/me/tickets",
             json={"amount": "50", "payment_method": "支付宝:xxx"},
@@ -56,7 +56,7 @@ class TestCreateTicketAPI:
     def test_exceeds_balance(self, client, db_session):
         user = _setup_user_with_balance(db_session, balance="100.00")
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.post(
             "/api/v1/users/me/tickets",
             json={"amount": "200", "payment_method": "支付宝:xxx"},
@@ -74,7 +74,7 @@ class TestListTicketsAPI:
     def test_empty_list(self, client, db_session):
         user = _setup_user_with_balance(db_session)
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/users/me/tickets",
             headers={"Authorization": f"Bearer {token}"},
@@ -86,7 +86,7 @@ class TestListTicketsAPI:
     def test_list_with_tickets(self, client, db_session):
         user = _setup_user_with_balance(db_session)
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         # 创建 2 个工单
         client.post(
             "/api/v1/users/me/tickets",
@@ -109,7 +109,7 @@ class TestListTicketsAPI:
     def test_filter_by_status(self, client, db_session):
         user = _setup_user_with_balance(db_session)
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         client.post(
             "/api/v1/users/me/tickets",
             json={"amount": "100.00", "payment_method": "m1"},

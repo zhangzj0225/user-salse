@@ -9,7 +9,7 @@ from app.models.user import User
 from app.services.earnings_service import EarningsService
 
 
-def _make_user(db, email="user@example.com", role="user"):
+def _make_user(db, email="user@example.com", role="distributor"):
     u = User(email=email, role=role, status="active")
     db.add(u)
     db.flush()

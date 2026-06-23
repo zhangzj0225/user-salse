@@ -8,10 +8,11 @@ class License(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     code = Column(String(128), unique=True, nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    email = Column(String(128), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    activated_user_id = Column(String(128), nullable=True)
+    activated_user_info = Column(String(512), nullable=True)
     source = Column(
-        Enum("recharge", "sale", "role_builtin", name="license_source"),
+        Enum("payment", "sale", "role_builtin", name="license_source"),
         nullable=False,
     )
     source_id = Column(Integer, nullable=True)

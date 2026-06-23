@@ -4,14 +4,16 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.core.constants import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 from app.core.database import get_db
 from app.core.security import get_current_admin
 from app.models.admin_user import AdminUser
+from app.models.license import License
 from app.models.user import User
-from app.schemas.recharge import AdminRechargeInfo, RechargeInfo, RejectRechargeRequest
+from app.schemas.payment import PaymentApproveRequest, PaymentResponse
 from app.schemas.ticket import (
     AdminTicketListResponse,
     RejectTicketRequest,
@@ -25,7 +27,12 @@ from app.schemas.system_config import (
     ConfigUpdateRequest,
 )
 from app.services.dashboard_service import DashboardService, get_dashboard_service
-from app.services.recharge_service import RechargeService, get_recharge_service
+from app.services.license_service import (
+    CURRENT_KEY_VERSION,
+    _generate_license_code,
+)
+from app.services.payment_service import PaymentService, get_payment_service
+from app.services.referral_service import ReferralService, get_referral_service
 from app.services.system_config_service import SystemConfigService, get_system_config_service
 from app.services.user_management_service import UserManagementService, get_user_management_service
 from app.services.withdrawal_service import WithdrawalService, get_withdrawal_service
@@ -34,58 +41,53 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-_VALID_STATUSES = ("pending", "approved", "rejected")
+_VALID_STATUSES = ("pending", "paid", "failed")
 
 
-@router.get("/recharges", response_model=dict)
-def list_recharges_endpoint(
-    status: Optional[str] = Query(None, description="筛选状态: pending/approved/rejected"),
+@router.get("/payments", response_model=dict)
+def list_payments_endpoint(
+    status: Optional[str] = Query(None, description="筛选状态: pending/paid/failed"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin),
-    service: RechargeService = Depends(get_recharge_service),
+    service: PaymentService = Depends(get_payment_service),
 ):
-    """管理员查看充值记录列表，支持状态筛选和分页。"""
+    """管理员查看支付记录列表，支持状态筛选和分页。"""
     if status is not None and status not in _VALID_STATUSES:
         raise HTTPException(
             status_code=400,
             detail=f"无效的状态参数，允许值: {_VALID_STATUSES}",
         )
 
-    recharges, total = service.list_recharges(db, status=status, limit=limit, offset=offset)
+    payments, total = service.list_payments(db, status=status, limit=limit, offset=offset)
 
-    # 批量加载用户邮箱
-    user_ids = {r.user_id for r in recharges}
-    users = {}
-    if user_ids:
-        user_list = db.query(User).filter(User.id.in_(user_ids)).all()
-        users = {u.id: u.email for u in user_list}
-
-    result = []
-    for r in recharges:
-        info = AdminRechargeInfo.model_validate(r)
-        info.user_email = users.get(r.user_id, "")
-        result.append(info.model_dump())
+    result = [
+        PaymentResponse.model_validate(p).model_dump() for p in payments
+    ]
 
     return {"data": result, "total": total, "limit": limit, "offset": offset}
 
 
-@router.post("/recharges/{recharge_id}/approve", response_model=dict)
-def approve_recharge_endpoint(
-    recharge_id: int,
+@router.post("/payments/{payment_id}/approve", response_model=dict)
+def approve_payment_endpoint(
+    payment_id: int,
+    request: PaymentApproveRequest,
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin),
-    service: RechargeService = Depends(get_recharge_service),
+    service: PaymentService = Depends(get_payment_service),
 ):
-    """批准充值申请。"""
+    """批准支付申请（可补填推荐码）。"""
     try:
-        recharge = service.approve_recharge(recharge_id, current_admin.id, db)
+        payment = service.approve_payment(
+            payment_id, current_admin.id, db,
+            referral_code=request.referral_code,
+        )
     except ValueError as e:
         if "不存在" in str(e):
             raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
-    return {"data": RechargeInfo.model_validate(recharge).model_dump()}
+    return {"data": PaymentResponse.model_validate(payment).model_dump()}
 
 
 # ---- 系统参数配置（Story 4.4）----
@@ -162,13 +164,13 @@ def get_dashboard_endpoint(
 
 # ---- 用户管理（Story 4.1）----
 
-_VALID_ROLES = ("user", "member", "distributor", "agent")
+_VALID_ROLES = ("distributor", "agent")
 
 
 @router.get("/users", response_model=UserListResponse)
 def list_users_endpoint(
     search: Optional[str] = Query(None, description="搜索邮箱/昵称"),
-    role: Optional[str] = Query(None, description="角色筛选: user/member/distributor/agent"),
+    role: Optional[str] = Query(None, description="角色筛选: distributor/agent"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -201,6 +203,89 @@ def get_user_detail_endpoint(
             raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     return result
+
+
+class CreateSeedUserRequest(BaseModel):
+    """创建种子用户请求。"""
+
+    email: EmailStr
+    role: str = Field(..., pattern=r"^(distributor|agent)$")
+    referral_code: Optional[str] = Field(default=None, max_length=128)
+
+
+_ROLE_QUOTA_MAP = {"distributor": 11, "agent": 22}
+
+
+@router.post("/users/create", response_model=dict)
+def create_seed_user_endpoint(
+    request: CreateSeedUserRequest,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+    referral_service: ReferralService = Depends(get_referral_service),
+):
+    """创建种子用户（跳过支付流程，自动分配额度 + License + 推荐码）。"""
+    email = request.email.strip().lower()
+
+    # 检查邮箱是否已存在
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="该邮箱已注册")
+
+    # 验证推荐码（如有），获取推荐人
+    parent_id = None
+    if request.referral_code:
+        result = referral_service.validate_referral_code(request.referral_code, db)
+        if not result["valid"]:
+            raise HTTPException(status_code=400, detail="推荐码无效")
+        parent_id = result["user_id"]
+
+    # 创建用户
+    quota = _ROLE_QUOTA_MAP.get(request.role, 0)
+    user = User(
+        email=email,
+        role=request.role,
+        status="active",
+        parent_id=parent_id,
+        account_quota=quota,
+    )
+    db.add(user)
+    db.flush()
+
+    # 生成推荐码
+    rc = referral_service.get_or_create_referral_code(user.id, db)
+    user.referral_code = rc.code
+    user.referral_code_generated = 1
+
+    # 生成 License（source=role_builtin）
+    license_code = _generate_license_code(user.id)
+    license_obj = License(
+        code=license_code,
+        user_id=user.id,
+        source="role_builtin",
+        source_id=None,
+        status="unused",
+        key_version=CURRENT_KEY_VERSION,
+    )
+    db.add(license_obj)
+
+    db.commit()
+    db.refresh(user)
+
+    logger.info(
+        "Seed user created: user_id=%d email=%s role=%s",
+        user.id, user.email, user.role,
+    )
+    return {
+        "data": {
+            "id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "status": user.status,
+            "account_quota": user.account_quota,
+            "referral_code": rc.code,
+            "license_code": license_code,
+        }
+    }
 
 
 # ---- 工单管理（Story 3.13）----
@@ -265,21 +350,27 @@ def reject_ticket_endpoint(
     return result
 
 
-@router.post("/recharges/{recharge_id}/reject", response_model=dict)
-def reject_recharge_endpoint(
-    recharge_id: int,
-    request: RejectRechargeRequest,
+class RejectPaymentRequest(BaseModel):
+    """拒绝支付请求。"""
+
+    reject_reason: str = Field(..., min_length=1, max_length=256)
+
+
+@router.post("/payments/{payment_id}/reject", response_model=dict)
+def reject_payment_endpoint(
+    payment_id: int,
+    request: RejectPaymentRequest,
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin),
-    service: RechargeService = Depends(get_recharge_service),
+    service: PaymentService = Depends(get_payment_service),
 ):
-    """拒绝充值申请。"""
+    """拒绝支付申请。"""
     try:
-        recharge = service.reject_recharge(
-            recharge_id, current_admin.id, request.reject_reason, db
+        payment = service.reject_payment(
+            payment_id, current_admin.id, request.reject_reason, db
         )
     except ValueError as e:
         if "不存在" in str(e):
             raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
-    return {"data": RechargeInfo.model_validate(recharge).model_dump()}
+    return {"data": PaymentResponse.model_validate(payment).model_dump()}

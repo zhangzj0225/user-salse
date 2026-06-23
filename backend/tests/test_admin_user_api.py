@@ -16,7 +16,7 @@ def _make_admin(db):
     return admin
 
 
-def _make_user(db, email, role="user", parent_id=None):
+def _make_user(db, email, role="distributor", parent_id=None):
     u = User(email=email, role=role, status="active", parent_id=parent_id)
     db.add(u)
     db.commit()
@@ -30,7 +30,7 @@ class TestListUsersAPI:
 
     def test_requires_admin_role(self, client, db_session):
         user = _make_user(db_session, "user@example.com")
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/admin/users",
             headers={"Authorization": f"Bearer {token}"},
@@ -50,8 +50,8 @@ class TestListUsersAPI:
 
     def test_list_with_users(self, client, db_session):
         admin = _make_admin(db_session)
-        _make_user(db_session, "u1@example.com", "user")
-        _make_user(db_session, "u2@example.com", "member")
+        _make_user(db_session, "u1@example.com", "distributor")
+        _make_user(db_session, "u2@example.com", "distributor")
 
         token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
         resp = client.get(
@@ -80,8 +80,8 @@ class TestListUsersAPI:
 
     def test_filter_by_role(self, client, db_session):
         admin = _make_admin(db_session)
-        _make_user(db_session, "u1@example.com", "user")
-        _make_user(db_session, "u2@example.com", "member")
+        _make_user(db_session, "u1@example.com", "distributor")
+        _make_user(db_session, "u2@example.com", "distributor")
         _make_user(db_session, "u3@example.com", "agent")
 
         token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
@@ -121,7 +121,7 @@ class TestListUsersAPI:
     def test_parent_email_included(self, client, db_session):
         admin = _make_admin(db_session)
         parent = _make_user(db_session, "parent@example.com", "agent")
-        child = _make_user(db_session, "child@example.com", "user", parent_id=parent.id)
+        child = _make_user(db_session, "child@example.com", "distributor", parent_id=parent.id)
 
         token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
         resp = client.get(
@@ -176,9 +176,9 @@ class TestUserDetailAPI:
     def test_get_detail_with_team(self, client, db_session):
         admin = _make_admin(db_session)
         parent = _make_user(db_session, "parent@example.com", "agent")
-        child1 = _make_user(db_session, "c1@example.com", "user", parent_id=parent.id)
-        child2 = _make_user(db_session, "c2@example.com", "user", parent_id=parent.id)
-        grandchild = _make_user(db_session, "gc@example.com", "user", parent_id=child1.id)
+        child1 = _make_user(db_session, "c1@example.com", "distributor", parent_id=parent.id)
+        child2 = _make_user(db_session, "c2@example.com", "distributor", parent_id=parent.id)
+        grandchild = _make_user(db_session, "gc@example.com", "distributor", parent_id=child1.id)
 
         token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
         resp = client.get(

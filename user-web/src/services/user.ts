@@ -3,7 +3,6 @@ import { request } from "./api";
 // ── 后端 LicenseInfo（无 data 包装）──
 export interface UserLicense {
   code: string;
-  email: string;
   source: string;
   status: string;
   activated_at?: string;
@@ -21,7 +20,7 @@ export interface UserProfile {
   avatar_url?: string;
 }
 
-export interface InviteCodeResponse {
+export interface ReferralCodeResponse {
   data: { code: string };
 }
 
@@ -30,5 +29,5 @@ export const userApi = {
 
   getLicense: () => request<UserLicense>({ method: "GET", url: "/users/me/license" }),
 
-  generateInviteCode: () => request<InviteCodeResponse>({ method: "POST", url: "/invite-codes" }),
+  getReferralCode: () => request<ReferralCodeResponse>({ method: "GET", url: "/referral-code" }),
 };

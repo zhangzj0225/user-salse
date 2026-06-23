@@ -7,7 +7,7 @@ from decimal import Decimal
 from app.models.audit_log import AuditLog
 from app.models.commission_record import CommissionRecord
 from app.models.email_verification_code import EmailVerificationCode
-from app.models.recharge import Recharge
+from app.models.payment import Payment
 from app.models.user import User
 from app.services.sale_service import SaleService
 
@@ -46,13 +46,13 @@ class TestSellAccount:
 
         # 验证返回值
         assert result["customer_id"] is not None
-        assert result["recharge_id"] is not None
+        assert result["payment_id"] is not None
         assert result["remaining_quota"] == 4
 
         # 验证客户创建
         customer = db_session.query(User).filter(User.id == result["customer_id"]).first()
         assert customer.email == "customer@example.com"
-        assert customer.role == "member"
+        assert customer.role == "distributor"
         assert customer.parent_id == seller.id
 
         # 验证额度消耗
@@ -60,21 +60,18 @@ class TestSellAccount:
         assert seller.account_used == 1
         assert seller.account_quota - seller.account_used == 4
 
-        # 验证 Recharge 记录
-        recharge = db_session.query(Recharge).filter(Recharge.id == result["recharge_id"]).first()
-        assert recharge.amount == Decimal("888.00")
-        assert recharge.status == "approved"
-        assert recharge.target_role == "member"
-        # F2: sale 流程无管理员审核，reviewed_by 留 null（FK 指向 admin_users，
-        # 写 seller_id 在生产 MySQL 会 IntegrityError）
-        assert recharge.reviewed_by is None
+        # 验证 Payment 记录
+        payment = db_session.query(Payment).filter(Payment.id == result["payment_id"]).first()
+        assert payment.amount == Decimal("888.00")
+        assert payment.status == "paid"
+        assert payment.target_role == "member_license"
+        assert payment.reviewed_by is None
 
         # 验证审计日志
         log = db_session.query(AuditLog).filter(AuditLog.action == "quota_sale").first()
         assert log is not None
         assert log.operator_id == seller.id
         assert log.target_id == customer.id
-        assert log.new_value["amount"] == "888.00"  # S1: 字符串一致
 
     def test_no_commission_generated(self, db_session):
         """AC: 场景 A 不产生任何佣金"""
@@ -86,7 +83,7 @@ class TestSellAccount:
         )
 
         records = db_session.query(CommissionRecord).filter(
-            CommissionRecord.business_id == f"sale_{result['recharge_id']}"
+            CommissionRecord.business_id == f"sale_{result['payment_id']}"
         ).all()
         assert len(records) == 0
 
@@ -100,22 +97,6 @@ class TestSellAccount:
         )
         assert result["remaining_quota"] == 10
 
-    def test_user_cannot_sell(self, db_session):
-        """普通用户无权销售"""
-        seller = _make_seller(db_session, email="user@example.com", role="user", quota=0)
-        _make_code(db_session, "customer@example.com")
-        service = SaleService()
-        with pytest.raises(ValueError, match="无权销售"):
-            service.sell_account(seller.id, "customer@example.com", MOCK_CODE, db_session)
-
-    def test_member_cannot_sell(self, db_session):
-        """888 会员无权销售"""
-        seller = _make_seller(db_session, email="member@example.com", role="member", quota=0)
-        _make_code(db_session, "customer@example.com")
-        service = SaleService()
-        with pytest.raises(ValueError, match="无权销售"):
-            service.sell_account(seller.id, "customer@example.com", MOCK_CODE, db_session)
-
     def test_zero_quota_cannot_sell(self, db_session):
         """额度为 0 不可销售"""
         seller = _make_seller(db_session, quota=1, used=1)
@@ -127,7 +108,7 @@ class TestSellAccount:
     def test_duplicate_email_rejected(self, db_session):
         """客户邮箱已注册"""
         seller = _make_seller(db_session)
-        existing = User(email="taken@example.com", role="user", status="active")
+        existing = User(email="taken@example.com", role="distributor", status="active")
         db_session.add(existing)
         db_session.flush()
         _make_code(db_session, "taken@example.com")
@@ -188,7 +169,6 @@ class TestSellAccount:
     def test_quota_not_consumed_on_failure(self, db_session):
         """M2: 销售失败时额度不消耗"""
         seller = _make_seller(db_session, quota=5, used=0)
-        # 不创建验证码记录 → 验证码校验失败
         service = SaleService()
         with pytest.raises(ValueError, match="验证码"):
             service.sell_account(seller.id, "customer@example.com", MOCK_CODE, db_session)

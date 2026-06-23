@@ -4,6 +4,7 @@ from decimal import Decimal
 from e2e_common import (
     Config, api, chk, skip_msg, warn_msg, summary,
     test_email, make_ts, admin_login, get_backend_session, seed_users,
+    get_referral_code_str,
 )
 
 MOCK = Config.MOCK_CODE
@@ -21,8 +22,8 @@ for name, data in info.items():
     print(f"  {name}: id={data['id']} parent={'?' if name == 'A' else '...'}")
 print("  Seeded + committed.\n")
 
-# ═══ PHASE 2: Login + recharges ═══
-print("PHASE 2: Login + recharge")
+# ═══ PHASE 2: Login + payments ═══
+print("PHASE 2: Login + payment")
 at = admin_login()["token"]
 tokens = {}
 for nm in ["A", "B", "C", "D", "F"]:
@@ -35,14 +36,21 @@ for nm in ["A", "B", "C", "D", "F"]:
     tokens[nm] = r["data"]["token"]
     print(f"  {nm}: login id={r['data']['user']['id']} (DB id={i['id']})")
 
+parent_map = {"A": None, "B": "A", "C": "B", "D": "C", "F": "A"}
 for nm, amt in [("A", 10000), ("B", 10000), ("C", 5000), ("D", 888), ("F", 10000)]:
     t = tokens.get(nm)
     if not t:
         continue
-    rid = api("POST", "/api/v1/recharges", {"amount": amt}, t)["data"]["id"]
-    api("POST", f"/api/v1/admin/recharges/{rid}/approve", t=at)
+    parent_name = parent_map[nm]
+    rc = info[parent_name]["referral_code"] if parent_name else None
+    payload = {"email": info[nm]["email"], "amount": amt}
+    if rc:
+        payload["referral_code"] = rc
+    rid = api("POST", "/api/v1/payments/create", payload, t)["data"]["id"]
+    api("POST", f"/api/v1/admin/payments/{rid}/approve", data={}, t=at)
+    info[nm]["referral_code"] = get_referral_code_str(t)
     role = api("GET", "/api/v1/users/me", t=t)["data"]["role"]
-    ex = {"A": "agent", "B": "agent", "C": "distributor", "D": "member", "F": "agent"}[nm]
+    ex = {"A": "agent", "B": "agent", "C": "distributor", "D": "distributor", "F": "agent"}[nm]
     chk(role == ex, f"P2: {nm} role={role}")
 print()
 
@@ -102,21 +110,17 @@ b_bal_before = Decimal(api("GET", "/api/v1/users/me/earnings", t=tokens["B"])["s
 print(f"  B balance before: {b_bal_before}")
 
 from app.models.user import User
-from app.models.invite_code import InviteCode
-from app.core.security import generate_invite_code
 
 db3 = get_backend_session()
 e_email = em("E_sale")
-e = User(email=e_email, role="member", status="active", parent_id=info["B"]["id"])
+e = User(email=e_email, role="distributor", status="active", parent_id=info["B"]["id"])
 db3.add(e); db3.flush()
-ecode = generate_invite_code(e.id); e.invite_code = ecode
-db3.add(InviteCode(code=ecode, generator_id=e.id, key_version=1))
 db3.commit(); db3.close()
 
 api("POST", "/api/v1/auth/send-email-code", {"email": e_email, "scene": "login"})
 e_r = api("POST", "/api/v1/auth/login", {"email": e_email, "code": MOCK})
 if "_e" not in e_r:
-    chk(e_r["data"]["user"]["role"] == "member", "S8a: E=member (parent=B)")
+    chk(e_r["data"]["user"]["role"] == "distributor", "S8a: E=distributor (parent=B)")
     e_upstream = api("GET", "/api/v1/users/me/upstream", t=e_r["data"]["token"])
     e_parents = [m["user_id"] for m in e_upstream.get("chain", [])]
     chk(info["B"]["id"] in e_parents, f"S8b: E.parent=B (upstream={e_parents[:2]}...)")
@@ -153,7 +157,7 @@ b_bal = api("GET", "/api/v1/users/me/earnings", t=tokens["B"])["summary"]["pendi
 c_bal = api("GET", "/api/v1/users/me/earnings", t=tokens["C"])["summary"]["pending_balance"]
 print(f"\n{'=' * 60}")
 print(f"  A total={a_bal} (expect ~11000), B={b_bal} (2750+133.20=2883.20), C={c_bal} (355.20)")
-print(f"\n  链路: A(11k) ─┬─ B(2.1k, 充1万) ─┬─ C(355, 充5千) ─┬─ D(充888)")
-print(f"               │                     └─ E_sale(会员, B卖额度)")
-print(f"               └─ F(充1万)")
+print(f"  链路: A(11k) ─┬─ B(2.1k, 支付1万) ─┬─ C(355, 支付5千) ─┬─ D(支付888)")
+print(f"               │                     └─ E_sale(经销商, B卖额度)")
+print(f"               └─ F(支付1万)")
 summary()

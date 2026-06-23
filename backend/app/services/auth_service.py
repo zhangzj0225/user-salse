@@ -1,16 +1,17 @@
 from abc import ABC, abstractmethod
+import logging
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, generate_invite_code
+from app.core.security import create_access_token
 from app.models.admin_user import AdminUser
 from app.models.email_verification_code import EmailVerificationCode
-from app.models.invite_code import InviteCode
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 # Dummy bcrypt hash of "dummy" for constant-time comparison when user not found
 _DUMMY_HASH = "$2b$12$LJ3m4ys3GZfnYMz8kVsKaekyOsqAVtG2X7VOq8MS3DU8N7rthnfKa"
@@ -45,15 +46,7 @@ class AuthService(ABC):
 
     @abstractmethod
     def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
-        """Login flow: find-or-create user without invite code (cold-start / admin seeding).
-        Intentional design: allows creating root-level users with no parent_id,
-        used for admin-seeded first-batch users before viral distribution begins.
-        """
-        ...
-
-    @abstractmethod
-    def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
-        """Registration flow: invite code required, establishes parent_id for distribution tree."""
+        """Login flow: find-or-create user (cold-start / admin seeding)."""
         ...
 
 
@@ -61,6 +54,8 @@ class MockAuthService(AuthService):
     MOCK_CODE = "123456"
 
     def send_email_code(self, email: str, scene: str, db: Session) -> str:
+        # M1: 邮箱统一小写化
+        email = email.strip().lower()
         code = self.MOCK_CODE
         record = EmailVerificationCode(
             email=email,
@@ -73,14 +68,15 @@ class MockAuthService(AuthService):
         return code
 
     def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
+        # M1: 邮箱统一小写化
+        email = email.strip().lower()
         record = _verify_email_code(db, email, "login", code)
         record.verified = True
 
-        # Cold-start / admin seeding: create user without invite code (no parent_id).
-        # Normal users enter via /register which requires an invite code.
+        # Cold-start / admin seeding: create user without parent_id.
         user = db.query(User).filter(User.email == email).first()
         if not user:
-            user = User(email=email, role="user", status="active")
+            user = User(email=email, role="distributor", status="active")
             db.add(user)
             db.flush()
 
@@ -89,81 +85,102 @@ class MockAuthService(AuthService):
         token = create_access_token(subject=user.id, role=user.role, token_type="user")
         return user, token
 
-    def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
-        # M1: 邮箱统一小写化，防止大小写绕过自推荐检查和邮箱查重
-        email = email.lower()
-        record = _verify_email_code(db, email, "register", code)
 
-        # Check if invite code exists at all (distinct from "already used")
-        ic_exists = db.query(InviteCode).filter(InviteCode.code == invite_code).first()
-        if not ic_exists:
-            raise ValueError("邀请码无效")
+class EmailAuthService(AuthService):
+    """真实邮箱认证服务 — 通过 SMTP 发送验证码。
 
-        # AC5: 防止自推荐 — 邀请码生成者的邮箱不能与注册邮箱相同
-        # 此检查在邮箱查重之前，给出更精确的错误信息
-        generator = db.query(User).filter(User.id == ic_exists.generator_id).first()
-        if generator and generator.email.lower() == email:
-            raise ValueError("不能使用自己的邀请码")
+    与 MockAuthService 的区别仅在 send_email_code：真实发送邮件而非固定 123456。
+    authenticate 逻辑完全复用（验码、建用户、发 token）。
+    """
 
-        if db.query(User).filter(User.email == email).first():
-            raise ValueError("邮箱已注册")
+    def _send_email_smtp(self, to_email: str, code: str, scene: str) -> None:
+        """通过 SMTP 发送验证码邮件。
 
-        # Lock the row for update to prevent TOCTOU race
-        ic = (
-            db.query(InviteCode)
-            .filter(InviteCode.code == invite_code, InviteCode.used_by == None)
-            .with_for_update()
-            .first()
+        scene 用于选择邮件文案：login/sale_verify。
+        """
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
+        scene_text = {
+            "login": "登录",
+            "sale_verify": "销售验证",
+        }.get(scene, "验证")
+
+        subject = f"足球舆情系统 - {scene_text}验证码"
+        body = f"""
+您的{scene_text}验证码是：{code}
+
+验证码有效期为 {settings.EMAIL_CODE_EXPIRE_MINUTES} 分钟，请尽快使用。
+如非本人操作，请忽略此邮件。
+
+— 足球舆情系统
+""".strip()
+
+        msg = MIMEMultipart()
+        msg["From"] = settings.SMTP_FROM
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        # 465 端口用 SMTP_SSL（QQ 邮箱等），587/其他端口用 STARTTLS
+        if settings.SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+                server.login(settings.SMTP_USER, settings.SMTP_PASS)
+                server.sendmail(settings.SMTP_FROM, [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+                server.starttls()
+                server.login(settings.SMTP_USER, settings.SMTP_PASS)
+                server.sendmail(settings.SMTP_FROM, [to_email], msg.as_string())
+
+        logger.info("验证码邮件已发送: to=%s scene=%s", to_email, scene)
+
+    def send_email_code(self, email: str, scene: str, db: Session) -> str:
+        # M1: 邮箱统一小写化
+        email = email.strip().lower()
+
+        # 生成 6 位随机数字验证码
+        import secrets
+        code = "".join(secrets.choice("0123456789") for _ in range(6))
+
+        # 写入 DB
+        record = EmailVerificationCode(
+            email=email,
+            code=code,
+            scene=scene,
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(minutes=settings.EMAIL_CODE_EXPIRE_MINUTES),
         )
-        if not ic:
-            raise ValueError("邀请码已被使用")
-
-        now = datetime.now(timezone.utc)
-        user = User(email=email, role="user", status="active", parent_id=ic.generator_id)
-        db.add(user)
+        db.add(record)
         db.flush()
 
-        # AC7: 自动生成个人邀请码
-        personal_code = generate_invite_code(user.id)
-        user.invite_code = personal_code
-        personal_ic = InviteCode(code=personal_code, generator_id=user.id, key_version=1)
-        db.add(personal_ic)
+        # 通过 SMTP 发送真实邮件（在 commit 前，失败时回滚）
+        try:
+            self._send_email_smtp(email, code, scene)
+        except Exception:
+            db.rollback()
+            raise
+        db.commit()
 
-        ic.used_by = user.id
-        ic.used_at = now
+        return code
+
+    def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
+        # M1: 邮箱统一小写化
+        email = email.strip().lower()
+        record = _verify_email_code(db, email, "login", code)
         record.verified = True
 
-        # Story 5.2: 通知上级有新下级注册
-        from app.services.notification_service import NotificationService
-        NotificationService.notify_subordinate_registered(
-            parent_id=ic.generator_id,
-            child_email=email,
-            db=db,
-        )
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            user = User(email=email, role="distributor", status="active")
+            db.add(user)
+            db.flush()
 
-        try:
-            db.commit()
-        except IntegrityError as e:
-            db.rollback()
-            # M2: 区分 email 和 invite_code 约束冲突
-            err_msg = str(e.orig).lower()
-            if "email" in err_msg or "users_email" in err_msg:
-                raise ValueError("邮箱已注册")
-            raise ValueError("邀请码生成冲突，请重试")
+        db.commit()
 
         token = create_access_token(subject=user.id, role=user.role, token_type="user")
         return user, token
-
-
-class EmailAuthService(AuthService):
-    def send_email_code(self, email: str, scene: str, db: Session) -> str:
-        raise NotImplementedError("Email auth not implemented yet")
-
-    def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
-        raise NotImplementedError("Email auth not implemented yet")
-
-    def register(self, email: str, code: str, invite_code: str, db: Session) -> tuple[User, str]:
-        raise NotImplementedError("Email auth not implemented yet")
 
 
 def get_auth_service() -> AuthService:

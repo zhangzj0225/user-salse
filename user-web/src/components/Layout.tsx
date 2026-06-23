@@ -5,7 +5,6 @@ import {
   HomeOutlined,
   TeamOutlined,
   DollarOutlined,
-  WalletOutlined,
   ShoppingOutlined,
   MoneyCollectOutlined,
   UserOutlined,
@@ -21,8 +20,6 @@ const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
 const roleLabelMap: Record<string, string> = {
-  user: "普通用户",
-  member: "888会员",
   distributor: "经销商",
   agent: "代理",
 };
@@ -40,8 +37,7 @@ export default function AppLayout() {
     { key: "/", icon: <HomeOutlined />, label: "首页" },
     { key: "/team", icon: <TeamOutlined />, label: "我的团队" },
     { key: "/earnings", icon: <DollarOutlined />, label: "我的收益" },
-    { key: "/recharge", icon: <WalletOutlined />, label: "充值" },
-    ...(canSales ? [{ key: "/sales", icon: <ShoppingOutlined />, label: "销售账号" }] : []),
+    ...(canSales ? [{ key: "/sales", icon: <ShoppingOutlined />, label: "额度销售" }] : []),
     { key: "/withdrawal", icon: <MoneyCollectOutlined />, label: "提现" },
     { key: "/profile", icon: <UserOutlined />, label: "我的" },
   ];

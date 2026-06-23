@@ -2,13 +2,7 @@ import { request } from "./api";
 
 export interface SendCodeParams {
   email: string;
-  scene: "login" | "register" | "sale_verify";
-}
-
-export interface RegisterParams {
-  email: string;
-  code: string;
-  invite_code: string;
+  scene: "login" | "sale_verify";
 }
 
 export interface LoginParams {
@@ -31,7 +25,7 @@ export interface SendCodeResponse {
   };
 }
 
-/** 后端 login/register 响应 body：{ data: { token, user } } */
+/** 后端 login 响应 body：{ data: { token, user } } */
 export interface AuthResponse {
   data: {
     token: string;
@@ -44,13 +38,6 @@ export const authApi = {
     request<SendCodeResponse>({
       method: "POST",
       url: "/auth/send-email-code",
-      data: params,
-    }),
-
-  register: (params: RegisterParams) =>
-    request<AuthResponse>({
-      method: "POST",
-      url: "/auth/register",
       data: params,
     }),
 

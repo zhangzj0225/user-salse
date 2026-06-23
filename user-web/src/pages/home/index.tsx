@@ -13,8 +13,6 @@ import { quotaApi } from "../../services/quota";
 import { useAuthStore } from "../../stores/auth";
 
 const roleLabelMap: Record<string, string> = {
-  user: "普通用户",
-  member: "888会员",
   distributor: "经销商",
   agent: "代理",
 };
@@ -97,8 +95,8 @@ export default function HomePage() {
 
       <Card title="快捷操作">
         <Space wrap size="middle">
-          <Button type="primary" icon={<DollarOutlined />} onClick={() => navigate("/recharge")}>
-            去充值
+          <Button type="primary" icon={<DollarOutlined />} onClick={() => navigate("/sales")}>
+            额度销售
           </Button>
           <Button icon={<TeamOutlined />} onClick={() => navigate("/team")}>
             我的团队

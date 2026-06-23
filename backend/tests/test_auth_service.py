@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.models.email_verification_code import EmailVerificationCode
-from app.models.invite_code import InviteCode
 from app.models.user import User
 from app.services.auth_service import MockAuthService, EmailAuthService, get_auth_service
 
@@ -68,7 +67,7 @@ class TestMockAuthServiceAuthenticate:
 
         user, _ = service.authenticate("test@example.com", "123456", db_session)
         assert user.email == "test@example.com"
-        assert user.role == "user"
+        assert user.role == "distributor"
         assert user.status == "active"
         assert user.parent_id is None  # cold-start: no parent
 
@@ -127,221 +126,45 @@ class TestMockAuthServiceAuthenticate:
         assert payload["type"] == "user"
 
 
-class TestMockAuthServiceRegister:
-    def _make_parent(self, db_session, email: str = "parent@example.com") -> User:
-        user = User(email=email, role="agent", status="active")
-        db_session.add(user)
-        db_session.flush()
-        return user
-
-    def _make_invite_code(self, db_session, generator_id: int, code: str = "INVCODE01") -> InviteCode:
-        ic = InviteCode(code=code, generator_id=generator_id)
-        db_session.add(ic)
-        db_session.flush()
-        return ic
-
-    def _send_register_code(self, db_session, email: str = "new@example.com") -> None:
-        service = MockAuthService()
-        service.send_email_code(email, "register", db_session)
-
-    def test_register_creates_user_with_parent_id(self, db_session):
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        user, _ = service.register("new@example.com", "123456", ic.code, db_session)
-        assert user.parent_id == parent.id
-
-    def test_register_returns_user_and_token(self, db_session):
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        user, token = service.register("new@example.com", "123456", ic.code, db_session)
-        assert isinstance(user, User)
-        assert user.email == "new@example.com"
-        assert user.role == "user"
-        assert user.status == "active"
-        assert isinstance(token, str) and len(token) > 0
-
-    def test_register_marks_email_code_verified(self, db_session):
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        service.register("new@example.com", "123456", ic.code, db_session)
-
-        record = db_session.query(EmailVerificationCode).filter(
-            EmailVerificationCode.email == "new@example.com",
-            EmailVerificationCode.scene == "register",
-        ).first()
-        assert record.verified is True
-
-    def test_register_marks_invite_code_used(self, db_session):
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        user, _ = service.register("new@example.com", "123456", ic.code, db_session)
-
-        db_session.refresh(ic)
-        assert ic.used_by == user.id
-        assert ic.used_at is not None
-
-    def test_register_raises_on_wrong_code(self, db_session):
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        with pytest.raises(ValueError, match="验证码错误"):
-            service.register("new@example.com", "999999", ic.code, db_session)
-
-    def test_register_raises_on_expired_email_code(self, db_session):
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        expired = EmailVerificationCode(
-            email="new@example.com",
-            code="123456",
-            scene="register",
-            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
-        )
-        db_session.add(expired)
-        db_session.commit()
-
-        service = MockAuthService()
-        with pytest.raises(ValueError, match="验证码错误或已过期"):
-            service.register("new@example.com", "123456", ic.code, db_session)
-
-    def test_register_raises_on_invalid_invite_code(self, db_session):
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        with pytest.raises(ValueError, match="邀请码无效"):
-            service.register("new@example.com", "123456", "NONEXISTENT", db_session)
-
-    def test_register_raises_on_already_used_invite_code(self, db_session):
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        ic.used_by = parent.id  # mark as already used
-        db_session.flush()
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        with pytest.raises(ValueError, match="邀请码已被使用"):
-            service.register("new@example.com", "123456", ic.code, db_session)
-
-    def test_register_raises_on_duplicate_email(self, db_session):
-        parent = self._make_parent(db_session)
-        # 使用另一个用户的邀请码（不是 parent 的），避免触发自推荐检查
-        other = User(email="other@example.com", role="user", status="active")
-        db_session.add(other)
-        db_session.flush()
-        ic = self._make_invite_code(db_session, other.id, "OTHERCODE")
-        # parent's email is already taken
-        self._send_register_code(db_session, "parent@example.com")
-
-        service = MockAuthService()
-        with pytest.raises(ValueError, match="邮箱已注册"):
-            service.register("parent@example.com", "123456", "OTHERCODE", db_session)
-
-    # AC5: 防止自推荐
-    def test_register_raises_on_self_referral(self, db_session):
-        """用户不能使用自己生成的邀请码注册"""
-        parent = self._make_parent(db_session)
-        # parent 生成了自己的邀请码
-        ic = self._make_invite_code(db_session, parent.id, "PARENTCODE")
-        # parent 尝试用自己生成的邀请码注册（用 parent 的邮箱）
-        self._send_register_code(db_session, "parent@example.com")
-
-        service = MockAuthService()
-        with pytest.raises(ValueError, match="不能使用自己的邀请码"):
-            service.register("parent@example.com", "123456", "PARENTCODE", db_session)
-
-    # M1: 邮箱大小写不能绕过自推荐检查
-    def test_register_self_referral_blocked_with_different_case(self, db_session):
-        """大小写变体邮箱不能绕过自推荐检查"""
-        parent = self._make_parent(db_session, email="Parent@Example.com")
-        ic = self._make_invite_code(db_session, parent.id, "PARENTCODE")
-        self._send_register_code(db_session, "parent@example.com")
-
-        service = MockAuthService()
-        with pytest.raises(ValueError, match="不能使用自己的邀请码"):
-            service.register("parent@example.com", "123456", "PARENTCODE", db_session)
-
-    # AC7: 注册后自动生成个人邀请码
-    def test_register_auto_generates_personal_invite_code(self, db_session):
-        """注册成功后系统自动生成个人邀请码"""
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        user, _ = service.register("new@example.com", "123456", ic.code, db_session)
-
-        # user.invite_code 字段已设置
-        assert user.invite_code is not None
-        assert len(user.invite_code) > 0
-
-        # invite_codes 表中有对应的记录
-        personal_ic = db_session.query(InviteCode).filter(
-            InviteCode.code == user.invite_code
-        ).first()
-        assert personal_ic is not None
-        assert personal_ic.generator_id == user.id
-        assert personal_ic.used_by is None  # 未使用
-
-    def test_personal_invite_code_has_hmac_format(self, db_session):
-        """个人邀请码格式: Base62(user_id).nonce.HMAC-SHA256[:16]"""
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        self._send_register_code(db_session)
-
-        service = MockAuthService()
-        user, _ = service.register("new@example.com", "123456", ic.code, db_session)
-
-        # 格式校验: xxx.yyy.zzz (Base62 + nonce + 16位hex)
-        parts = user.invite_code.split(".")
-        assert len(parts) == 3
-        assert len(parts[1]) == 8  # nonce = 4 bytes = 8 hex chars
-        assert len(parts[2]) == 16  # HMAC-SHA256[:16]
-
-    def test_personal_invite_code_can_be_used_by_others(self, db_session):
-        """自动生成的邀请码可被其他用户使用"""
-        # 第一轮: parent 的邀请码 → new_user 注册，自动生成 new_user 的邀请码
-        parent = self._make_parent(db_session)
-        ic = self._make_invite_code(db_session, parent.id)
-        self._send_register_code(db_session, "new@example.com")
-
-        service = MockAuthService()
-        user1, _ = service.register("new@example.com", "123456", ic.code, db_session)
-
-        # 第二轮: 另一个用户用 new_user 的邀请码注册
-        self._send_register_code(db_session, "another@example.com")
-        user2, _ = service.register("another@example.com", "123456", user1.invite_code, db_session)
-
-        assert user2.parent_id == user1.id
-
-
 class TestEmailAuthService:
-    def test_send_email_code_raises_not_implemented(self, db_session):
-        service = EmailAuthService()
-        with pytest.raises(NotImplementedError):
-            service.send_email_code("test@example.com", "login", db_session)
+    """EmailAuthService 现已实现真实 SMTP 发送。
 
-    def test_authenticate_raises_not_implemented(self, db_session):
-        service = EmailAuthService()
-        with pytest.raises(NotImplementedError):
-            service.authenticate("test@example.com", "123456", db_session)
+    send_email_code 会尝试连接 SMTP 服务器，无配置时抛连接异常（非 NotImplementedError）。
+    authenticate / register 逻辑与 MockAuthService 一致，复用父类验证码校验。
+    """
 
-    def test_register_raises_not_implemented(self, db_session):
+    def test_send_email_code_writes_db_record(self, db_session, monkeypatch):
+        """验证码写入 DB（SMTP 发送被 mock 避免真实网络调用）。"""
         service = EmailAuthService()
-        with pytest.raises(NotImplementedError):
-            service.register("test@example.com", "123456", "CODE", db_session)
+
+        # mock SMTP 发送，避免真实网络调用
+        def fake_smtp(self, to_email, code, scene):
+            pass
+        monkeypatch.setattr(EmailAuthService, "_send_email_smtp", fake_smtp)
+
+        code = service.send_email_code("test@example.com", "login", db_session)
+        assert len(code) == 6
+        assert code.isdigit()
+
+        from app.models.email_verification_code import EmailVerificationCode
+        record = db_session.query(EmailVerificationCode).filter_by(
+            email="test@example.com", scene="login"
+        ).first()
+        assert record is not None
+        assert record.code == code
+
+    def test_authenticate_verifies_code(self, db_session, monkeypatch):
+        """authenticate 正确校验验证码并创建用户。"""
+        service = EmailAuthService()
+
+        def fake_smtp(self, to_email, code, scene):
+            pass
+        monkeypatch.setattr(EmailAuthService, "_send_email_smtp", fake_smtp)
+
+        code = service.send_email_code("auth_test@example.com", "login", db_session)
+        user, token = service.authenticate("auth_test@example.com", code, db_session)
+        assert user.email == "auth_test@example.com"
+        assert token is not None
 
 
 class TestGetAuthService:

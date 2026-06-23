@@ -1,5 +1,6 @@
 """License API 端点。"""
 
+import hmac
 import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -9,7 +10,12 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.schemas.license import LicenseInfo, VerifyLicenseRequest, VerifyLicenseResponse
+from app.schemas.license import (
+    LicenseActivateRequest,
+    LicenseInfo,
+    LicenseVerifyRequest,
+    LicenseVerifyResponse,
+)
 from app.services.license_service import LicenseService, get_license_service
 
 logger = logging.getLogger(__name__)
@@ -30,23 +36,46 @@ def get_my_license(
     return license_obj
 
 
-@router.post("/license/verify", response_model=VerifyLicenseResponse)
+@router.post("/license/verify", response_model=LicenseVerifyResponse)
 def verify_license(
-    request: VerifyLicenseRequest,
+    request: LicenseVerifyRequest,
     x_api_key: str = Header(..., alias="X-API-Key"),
     db: Session = Depends(get_db),
     service: LicenseService = Depends(get_license_service),
 ):
-    """验证并激活 License（供舆情系统调用）。
+    """验证 License（供舆情系统调用）。
 
     需要 X-API-Key 头部鉴权。
     """
-    if x_api_key != settings.LICENSE_API_KEY:
+    if not hmac.compare_digest(x_api_key, settings.LICENSE_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    result = service.verify_and_activate(
+    result = service.verify_license(code=request.code, db=db)
+    return LicenseVerifyResponse(
+        valid=result["valid"],
+        status=result["message"],
+        license_info=None,
+    )
+
+
+@router.post("/license/activate", response_model=dict)
+def activate_license(
+    request: LicenseActivateRequest,
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    db: Session = Depends(get_db),
+    service: LicenseService = Depends(get_license_service),
+):
+    """激活 License（供舆情系统调用）。
+
+    需要 X-API-Key 头部鉴权。
+    """
+    if not hmac.compare_digest(x_api_key, settings.LICENSE_API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+
+    result = service.activate_license(
         code=request.code,
-        email=request.email,
+        business_user_id=request.business_user_id,
+        business_user_info=request.business_user_info,
         db=db,
     )
-    return result
+    return {"data": result}

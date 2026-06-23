@@ -1,5 +1,5 @@
 # generated: 2026-06-11
-# last_updated: 2026-06-19
+# last_updated: 2026-06-23
 # project: user-salse
 # project_key: NOKEY
 # tracking_system: file-system
@@ -19,13 +19,14 @@
 #   - review: Ready for code review
 #   - done: Story completed
 #
-# SPRINT STRATEGY (v2 — 2026-06-18):
+# SPRINT STRATEGY (v2 — 2026-06-23):
 # ===================================
-# Epic 1 (done) → Epic 2 (refactor) → Epic 3 (core business) → Epic 4 (admin) → Epic 5 (rewards) → Epic 6 (user-web)
-# PRD v2 核心变更：邮箱注册、邀请码统一类型、角色由充值决定、License 对接、场景 A/B 佣金分离
+# PRD v2 核心变更：取消开放注册、邀请码→推荐码、佣金2档(55%/40%)、License不绑定邮箱、
+# 新增支付小闭环App、超管创建种子用户、用户体系独立（分销系统vs业务系统）
+# Epic 1-2 (done) → Epic 3-6 (v2 updated) → Epic 7 (new: payment-app)
 
 generated: 2026-06-11
-last_updated: 2026-06-19
+last_updated: 2026-06-23
 project: user-salse
 project_key: NOKEY
 tracking_system: file-system
@@ -39,45 +40,51 @@ development_status:
   1-4-commission-engine-skeleton-and-auth-strategy: done
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-database-model-refactor: done
   2-2-auth-module-refactor: done
   2-3-frontend-architecture-adjustment: done
   2-4-commission-engine-refactor: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
-  3-1-email-registration-and-invite-relationship: done
-  3-2-invite-code-generation-and-verification: done
-  3-3-recharge-application-and-review: done
-  3-4-recharge-first-reward-booking: done
+  epic-3: done
+  3-1-email-auth-and-referral-relationship: done
+  3-2-referral-code-generation-and-verification: done
+  3-3-payment-application-and-review: done
+  3-4-payment-first-reward: done
   3-5-quota-management: done
   3-6-team-tree-and-upstream-chain: done
   3-7-quota-sales-scenario-a: done
-  3-8-recharge-commission-scenario-b: done
+  3-8-payment-commission-scenario-b: done
   3-9-commission-config-and-idempotency: done
   3-10-earnings-dashboard: done
-  3-11-license-generation-and-verification: done
+  3-11-license-generation-and-activation: done
   3-12-withdrawal-request: done
   3-13-ticket-management-admin: done
   epic-3-retrospective: done
 
-  epic-4: in-progress
-  4-1-user-management: done
-  4-2-recharge-review: done
+  epic-4: done
+  4-1-user-management-and-seed-creation: done
+  4-2-payment-review-with-referral: done
   4-3-operations-dashboard: done
   4-4-system-parameter-configuration: done
   epic-4-retrospective: optional
 
-  epic-5: in-progress
+  epic-5: done
   5-1-long-term-reward-scheduled-settlement: done
   5-2-message-notifications: done
   epic-5-retrospective: optional
 
-  epic-6: in-progress
-  6-1-user-web-init-and-login: done
+  epic-6: done
+  6-1-user-web-login-only: done
   6-2-home-and-profile: done
   6-3-team-and-earnings: done
-  6-4-recharge-and-sales: done
+  6-4-sales-and-withdrawal: done
   6-5-withdrawal-tickets: done
   epic-6-retrospective: optional
+
+  epic-7: in-progress
+  7-1-payment-app-init-and-pay-page: done
+  7-2-payment-callback-handling: done
+  7-3-payment-status-query: done
+  epic-7-retrospective: optional

@@ -1,10 +1,10 @@
 """消息通知服务 (Story 5.2)。
 
 通知事件：
-- 下级注册 (subordinate_registered)
+- 下级支付 (subordinate_paid)
 - 佣金入账 (commission_credited)
 - 工单状态变更 (ticket_status_changed)
-- 充值审核通过 (recharge_approved)
+- 支付审核通过 (payment_approved)
 
 所有通知写入 notification_logs 表。
 """
@@ -50,13 +50,13 @@ class NotificationService:
         return notification
 
     @staticmethod
-    def notify_subordinate_registered(
+    def notify_subordinate_paid(
         parent_id: int, child_email: str, db: Session
     ) -> NotificationLog:
-        """通知上级：有新下级注册。"""
+        """通知上级：下级支付成功。"""
         return NotificationService.send(
             user_id=parent_id,
-            event_type="subordinate_registered",
+            event_type="subordinate_paid",
             content={"child_email": child_email},
             db=db,
         )
@@ -97,13 +97,13 @@ class NotificationService:
         )
 
     @staticmethod
-    def notify_recharge_approved(
+    def notify_payment_approved(
         user_id: int, amount: str, new_role: str, db: Session
     ) -> NotificationLog:
-        """通知用户：充值审核通过。"""
+        """通知用户：支付审核通过。"""
         return NotificationService.send(
             user_id=user_id,
-            event_type="recharge_approved",
+            event_type="payment_approved",
             content={"amount": amount, "new_role": new_role},
             db=db,
         )

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 class SalesRecord(BaseModel):
-    recharge_id: int
+    payment_id: int
     child_email: str
     amount: str
     target_role: Optional[str] = None

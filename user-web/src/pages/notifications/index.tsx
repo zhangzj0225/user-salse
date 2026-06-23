@@ -7,11 +7,11 @@ import dayjs from "dayjs";
 const { Text } = Typography;
 
 const eventTypeLabelMap: Record<string, string> = {
-  subordinate_registered: "下级注册",
+  subordinate_paid: "下级支付",
   commission_credited: "佣金入账",
   ticket_approved: "提现已打款",
   ticket_rejected: "提现已拒绝",
-  recharge_approved: "充值审核通过",
+  payment_approved: "支付审核通过",
 };
 
 export default function NotificationsPage() {

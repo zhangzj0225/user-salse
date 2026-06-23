@@ -5,8 +5,6 @@ import type { TeamMember, UpstreamMember } from "../../services/team";
 import dayjs from "dayjs";
 
 const roleLabelMap: Record<string, string> = {
-  user: "普通用户",
-  member: "888会员",
   distributor: "经销商",
   agent: "代理",
 };

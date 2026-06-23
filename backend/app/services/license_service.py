@@ -17,32 +17,34 @@ logger = logging.getLogger(__name__)
 CURRENT_KEY_VERSION = 1
 
 
-def _generate_license_code(user_id: int, email: str, nonce: str | None = None) -> str:
-    """生成 License Code：Base62(user_id).email_hash[:8].nonce.HMAC[:16]
+def _generate_license_code(user_id: int | None, nonce: str | None = None) -> str:
+    """生成 License Code：Base62(user_id).nonce.HMAC[:16]
 
-    格式: {base62_user_id}.{email_hash_8}.{nonce_8}.{hmac_16}
-    签名 payload: {user_id}:{email}:{nonce}
+    格式: {base62_user_id}.{nonce_8}.{hmac_16}
+    签名 payload: {user_id}:{nonce}
+    user_id 为 None 时使用 0 作为占位符（888 支付生成的 License 不关联用户）。
     """
     if nonce is None:
         nonce = secrets.token_hex(4)
-    email_hash = hashlib.sha256(email.encode("utf-8")).hexdigest()[:8]
-    payload = f"{user_id}:{email}:{nonce}".encode("utf-8")
+    uid = user_id if user_id is not None else 0
+    payload = f"{uid}:{nonce}".encode("utf-8")
     secret = settings.LICENSE_SECRET.encode("utf-8")
     signature = hmac.new(secret, payload, hashlib.sha256).hexdigest()[:16]
-    return f"{_base62_encode(user_id)}.{email_hash}.{nonce}.{signature}"
+    return f"{_base62_encode(uid)}.{nonce}.{signature}"
 
 
-def _verify_license_code(code: str, email: str) -> tuple[bool, int | None]:
+def _verify_license_code(code: str) -> tuple[bool, int | None]:
     """验证 License Code 签名。
 
     返回: (valid, user_id)
+    user_id 为 0 时返回 None（表示未关联用户）。
     """
     parts = code.split(".")
-    if len(parts) != 4:
+    if len(parts) != 3:
         return (False, None)
 
-    base62_uid, email_hash, nonce, signature = parts
-    if not all([base62_uid, email_hash, nonce, signature]):
+    base62_uid, nonce, signature = parts
+    if not all([base62_uid, nonce, signature]):
         return (False, None)
 
     try:
@@ -50,45 +52,40 @@ def _verify_license_code(code: str, email: str) -> tuple[bool, int | None]:
     except (ValueError, IndexError):
         return (False, None)
 
-    # 校验 email hash
-    expected_hash = hashlib.sha256(email.encode("utf-8")).hexdigest()[:8]
-    if not hmac.compare_digest(email_hash, expected_hash):
-        return (False, None)
-
     # 校验签名
-    payload = f"{user_id}:{email}:{nonce}".encode("utf-8")
+    payload = f"{user_id}:{nonce}".encode("utf-8")
     secret = settings.LICENSE_SECRET.encode("utf-8")
     expected_sig = hmac.new(secret, payload, hashlib.sha256).hexdigest()[:16]
     if not hmac.compare_digest(signature, expected_sig):
         return (False, None)
 
-    return (True, user_id)
+    return (True, user_id if user_id != 0 else None)
 
 
 class LicenseService:
-    """License 生成与验证服务。"""
+    """License 生成与验证服务。
 
-    def generate_for_recharge(
+    不绑定邮箱：License 通过签名验证，激活时记录业务用户信息。
+    """
+
+    def generate_for_payment(
         self,
-        user_id: int,
-        email: str,
-        recharge_id: int,
+        user_id: int | None,
+        payment_id: int,
         target_role: str,
         db: Session,
     ) -> License | None:
-        """充值确认后生成 License。
+        """支付确认后生成 License。
 
-        source 映射：888 → "recharge"，5000/10000 → "role_builtin"
+        source 统一为 "payment"。
+        user_id 为 None 时（888 支付），License 不关联用户。
         """
-        source = "recharge" if target_role == "member" else "role_builtin"
-
-        code = _generate_license_code(user_id, email)
+        code = _generate_license_code(user_id)
         license_obj = License(
             code=code,
             user_id=user_id,
-            email=email,
-            source=source,
-            source_id=recharge_id,
+            source="payment",
+            source_id=payment_id,
             status="unused",
             key_version=CURRENT_KEY_VERSION,
         )
@@ -96,8 +93,8 @@ class LicenseService:
         db.flush()
 
         logger.info(
-            "License generated: user_id=%d recharge_id=%d role=%s code_prefix=%s",
-            user_id, recharge_id, target_role, code[:8],
+            "License generated: user_id=%s payment_id=%d role=%s code_prefix=%s",
+            user_id, payment_id, target_role, code[:8],
         )
         return license_obj
 
@@ -110,30 +107,53 @@ class LicenseService:
             .first()
         )
 
-    def verify_and_activate(
+    def verify_license(self, code: str, db: Session) -> dict:
+        """验证 License：签名校验 + DB 查找 + 状态检查。
+
+        不验证邮箱，不激活。
+        返回: {"valid": bool, "message": str, "user_id": int | None}
+        """
+        # 1. 签名校验
+        valid, parsed_user_id = _verify_license_code(code)
+        if not valid:
+            return {"valid": False, "message": "License 签名验证失败", "user_id": None}
+
+        # 2. DB 查找
+        license_obj = db.query(License).filter(License.code == code).first()
+        if not license_obj:
+            return {"valid": False, "message": "License 不存在", "user_id": None}
+
+        # 3. 状态检查（必须为 unused）
+        if license_obj.status == "activated":
+            return {"valid": False, "message": "License 已激活", "user_id": None}
+        if license_obj.status == "expired":
+            return {"valid": False, "message": "License 已过期", "user_id": None}
+
+        return {"valid": True, "message": "License 有效", "user_id": license_obj.user_id}
+
+    def activate_license(
         self,
         code: str,
-        email: str,
+        business_user_id: str,
+        business_user_info: str | None,
         db: Session,
     ) -> dict:
-        """验证并激活 License（供舆情系统调用）。
+        """激活 License（供舆情系统调用）。
 
         验证步骤：
         1. 签名校验（防篡改）
-        2. DB 查询 License 是否存在（行锁防并发重复激活）
-        3. 邮箱匹配
-        4. user_id 交叉验证（defense in depth）
-        5. 状态检查（必须为 unused）
-        6. 激活：status → activated, activated_at → now
+        2. DB 查找 License 是否存在（行锁防并发重复激活）
+        3. 状态检查（必须为 unused）
+        4. 激活：status → activated, activated_user_id, activated_user_info, activated_at
 
         返回: {"success": bool, "message": str}
         """
         # 1. 签名校验
-        valid, parsed_user_id = _verify_license_code(code, email)
+        valid, _ = _verify_license_code(code)
         if not valid:
             return {"success": False, "message": "License 签名验证失败"}
 
-        # 2. DB 查询（行锁防并发）
+        # 2. DB 查找（行锁防并发）
         license_obj = (
             db.query(License)
             .filter(License.code == code)
@@ -143,32 +163,22 @@ class LicenseService:
         if not license_obj:
             return {"success": False, "message": "License 不存在"}
 
-        # 3. 邮箱匹配
-        if license_obj.email != email:
-            return {"success": False, "message": "邮箱与 License 不匹配"}
-
-        # 4. user_id 交叉验证（defense in depth）
-        if parsed_user_id is not None and license_obj.user_id != parsed_user_id:
-            logger.warning(
-                "License user_id mismatch: code_prefix=%s db_uid=%d sig_uid=%s",
-                code[:8], license_obj.user_id, parsed_user_id,
-            )
-            return {"success": False, "message": "License 用户信息不一致"}
-
-        # 5. 状态检查
+        # 3. 状态检查
         if license_obj.status == "activated":
             return {"success": False, "message": "License 已激活"}
         if license_obj.status == "expired":
             return {"success": False, "message": "License 已过期"}
 
-        # 6. 激活
+        # 4. 激活
         license_obj.status = "activated"
+        license_obj.activated_user_id = business_user_id
+        license_obj.activated_user_info = business_user_info
         license_obj.activated_at = datetime.now(timezone.utc)
         db.commit()
 
         logger.info(
-            "License activated: code_prefix=%s user_id=%d email=%s",
-            code[:8], license_obj.user_id, email,
+            "License activated: code_prefix=%s business_user_id=%s",
+            code[:8], business_user_id,
         )
         return {"success": True, "message": "License 激活成功"}
 

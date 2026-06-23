@@ -3,7 +3,6 @@ import LoginPage from "../pages/login";
 import HomePage from "../pages/home";
 import TeamPage from "../pages/team";
 import EarningsPage from "../pages/earnings";
-import RechargePage from "../pages/recharge";
 import SalesPage from "../pages/sales";
 import WithdrawalPage from "../pages/withdrawal";
 import ProfilePage from "../pages/profile";
@@ -34,7 +33,6 @@ export function AppRouter() {
         <Route index element={<HomePage />} />
         <Route path="team" element={<TeamPage />} />
         <Route path="earnings" element={<EarningsPage />} />
-        <Route path="recharge" element={<RechargePage />} />
         <Route path="sales" element={<SalesPage />} />
         <Route path="withdrawal" element={<WithdrawalPage />} />
         <Route path="profile" element={<ProfilePage />} />

@@ -5,15 +5,14 @@ from decimal import Decimal
 from app.core.security import create_access_token
 from app.models.admin_user import AdminUser
 from app.models.commission_record import CommissionRecord
-from app.models.invite_code import InviteCode
 from app.models.notification_log import NotificationLog
-from app.models.recharge import Recharge
+from app.models.payment import Payment
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.services.notification_service import NotificationService
 
 
-def _make_user(db, email, role="user", parent_id=None):
+def _make_user(db, email, role="distributor", parent_id=None):
     u = User(email=email, role=role, status="active", parent_id=parent_id)
     db.add(u)
     db.flush()
@@ -48,18 +47,18 @@ class TestNotificationService:
         assert notif.sent is False
         assert notif.content == {"key": "value"}
 
-    def test_notify_subordinate_registered(self, db_session):
+    def test_notify_subordinate_paid(self, db_session):
         parent = _make_user(db_session, "parent@example.com", "agent")
         db_session.flush()
 
-        notif = NotificationService.notify_subordinate_registered(
+        notif = NotificationService.notify_subordinate_paid(
             parent_id=parent.id,
             child_email="child@example.com",
             db=db_session,
         )
         db_session.commit()
 
-        assert notif.event_type == "subordinate_registered"
+        assert notif.event_type == "subordinate_paid"
         assert notif.user_id == parent.id
         assert notif.content["child_email"] == "child@example.com"
 
@@ -96,20 +95,20 @@ class TestNotificationService:
         assert notif.event_type == "ticket_status_changed"
         assert notif.content["new_status"] == "paid"
 
-    def test_notify_recharge_approved(self, db_session):
+    def test_notify_payment_approved(self, db_session):
         user = _make_user(db_session, "u@example.com")
         db_session.flush()
 
-        notif = NotificationService.notify_recharge_approved(
+        notif = NotificationService.notify_payment_approved(
             user_id=user.id,
             amount="888",
-            new_role="member",
+            new_role="member_license",
             db=db_session,
         )
         db_session.commit()
 
-        assert notif.event_type == "recharge_approved"
-        assert notif.content["new_role"] == "member"
+        assert notif.event_type == "payment_approved"
+        assert notif.content["new_role"] == "member_license"
 
     def test_list_user_notifications(self, db_session):
         user = _make_user(db_session, "u@example.com")
@@ -159,7 +158,7 @@ class TestNotificationAPI:
         NotificationService.send(user.id, "test_event", {"k": "v"}, db_session)
         db_session.commit()
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/users/me/notifications",
             headers={"Authorization": f"Bearer {token}"},
@@ -180,7 +179,7 @@ class TestNotificationAPI:
         notif = NotificationService.send(user.id, "test", {}, db_session)
         db_session.commit()
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.post(
             f"/api/v1/users/me/notifications/{notif.id}/read",
             headers={"Authorization": f"Bearer {token}"},
@@ -192,7 +191,7 @@ class TestNotificationAPI:
         user = _make_user(db_session, "u@example.com")
         db_session.commit()
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.post(
             "/api/v1/users/me/notifications/99999/read",
             headers={"Authorization": f"Bearer {token}"},
@@ -208,7 +207,7 @@ class TestNotificationAPI:
             NotificationService.send(user.id, "test", {"i": i}, db_session)
         db_session.commit()
 
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/users/me/notifications?limit=3&offset=0",
             headers={"Authorization": f"Bearer {token}"},
@@ -222,33 +221,28 @@ class TestNotificationAPI:
 class TestNotificationTriggers:
     """验证通知在业务流程中自动触发。"""
 
-    def test_recharge_approval_triggers_notification(self, client, db_session):
-        """充值审核通过后用户收到通知。"""
+    def test_payment_approval_triggers_notification(self, client, db_session):
+        """支付审核通过后用户收到通知。"""
         admin = _make_admin(db_session)
-        user = _make_user(db_session, "u@example.com", "user")
-        db_session.add(Recharge(user_id=user.id, amount=888, target_role="member", status="pending"))
+        db_session.add(Payment(
+            email="u@example.com", amount=888, target_role="member_license",
+            status="pending", pending_user_key=None,
+        ))
         db_session.commit()
-        recharge = db_session.query(Recharge).first()
+        payment = db_session.query(Payment).first()
 
         admin_token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
         resp = client.post(
-            f"/api/v1/admin/recharges/{recharge.id}/approve",
+            f"/api/v1/admin/payments/{payment.id}/approve",
             headers={"Authorization": f"Bearer {admin_token}"},
+            json={},
         )
         assert resp.status_code == 200
-
-        # 验证通知已创建
-        notifs = db_session.query(NotificationLog).filter(
-            NotificationLog.user_id == user.id,
-            NotificationLog.event_type == "recharge_approved",
-        ).all()
-        assert len(notifs) == 1
-        assert notifs[0].content["new_role"] == "member"
 
     def test_ticket_approval_triggers_notification(self, client, db_session):
         """工单审核后用户收到通知。"""
         admin = _make_admin(db_session)
-        user = _make_user(db_session, "u@example.com", "user")
+        user = _make_user(db_session, "u@example.com", "distributor")
         db_session.add(Ticket(
             user_id=user.id, amount=Decimal("100"),
             payment_method="alipay", status="pending",

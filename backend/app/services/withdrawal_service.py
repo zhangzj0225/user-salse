@@ -9,9 +9,6 @@ from sqlalchemy.orm import Session
 from app.models.audit_log import AuditLog
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.core.constants import (
-    VALID_RECHARGE_AMOUNTS,
-)
 from app.services.earnings_service import calculate_balance_summary
 
 logger = logging.getLogger(__name__)

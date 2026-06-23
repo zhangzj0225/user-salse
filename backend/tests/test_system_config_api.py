@@ -28,10 +28,10 @@ class TestSystemConfigAPI:
         assert resp.status_code == 401
 
     def test_requires_admin_role(self, client, db_session):
-        user = User(email="user@example.com", role="user", status="active")
+        user = User(email="user@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/admin/configs",
             headers={"Authorization": f"Bearer {token}"},
@@ -50,7 +50,7 @@ class TestSystemConfigAPI:
         configs = resp.json()["configs"]
         assert len(configs) >= 8
         keys = {c["config_key"] for c in configs}
-        assert "recharge_amount_888" in keys
+        assert "payment_amount_888" in keys
         assert "quota_for_agent" in keys
         assert "min_withdrawal_amount" in keys
 

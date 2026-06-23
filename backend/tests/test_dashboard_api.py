@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from app.core.security import create_access_token
 from app.models.admin_user import AdminUser
-from app.models.recharge import Recharge
+from app.models.payment import Payment
 from app.models.ticket import Ticket
 from app.models.user import User
 
@@ -22,10 +22,10 @@ class TestDashboardAPI:
         assert resp.status_code == 401
 
     def test_requires_admin_role(self, client, db_session):
-        user = User(email="user@example.com", role="user", status="active")
+        user = User(email="user@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/admin/dashboard",
             headers={"Authorization": f"Bearer {token}"},
@@ -44,19 +44,16 @@ class TestDashboardAPI:
         assert data["total_users"] == 0
         assert data["agent_count"] == 0
         assert data["distributor_count"] == 0
-        assert data["member_count"] == 0
-        assert data["regular_user_count"] == 0
         assert data["today_new_users"] == 0
-        assert Decimal(data["today_recharge_total"]) == Decimal("0")
+        assert Decimal(data["today_payment_total"]) == Decimal("0")
         assert data["pending_ticket_count"] == 0
 
     def test_user_counts(self, client, db_session):
         admin = _make_admin(db_session)
         db_session.add_all([
-            User(email="u1@example.com", role="user", status="active"),
-            User(email="u2@example.com", role="member", status="active"),
-            User(email="u3@example.com", role="distributor", status="active"),
-            User(email="u4@example.com", role="agent", status="active"),
+            User(email="u1@example.com", role="distributor", status="active"),
+            User(email="u2@example.com", role="distributor", status="active"),
+            User(email="u3@example.com", role="agent", status="active"),
         ])
         db_session.commit()
 
@@ -67,15 +64,13 @@ class TestDashboardAPI:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total_users"] == 4
-        assert data["regular_user_count"] == 1
-        assert data["member_count"] == 1
-        assert data["distributor_count"] == 1
+        assert data["total_users"] == 3
+        assert data["distributor_count"] == 2
         assert data["agent_count"] == 1
 
     def test_pending_ticket_count(self, client, db_session):
         admin = _make_admin(db_session)
-        user = User(email="u@example.com", role="user", status="active")
+        user = User(email="u@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
         db_session.add_all([
@@ -93,16 +88,16 @@ class TestDashboardAPI:
         assert resp.status_code == 200
         assert resp.json()["pending_ticket_count"] == 2
 
-    def test_today_recharge_total(self, client, db_session):
-        """今日已批准充值总额"""
+    def test_today_payment_total(self, client, db_session):
+        """今日已支付总额"""
         admin = _make_admin(db_session)
-        user = User(email="u@example.com", role="user", status="active")
+        user = User(email="u@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
         db_session.add_all([
-            Recharge(user_id=user.id, amount=888, target_role="member", status="approved"),
-            Recharge(user_id=user.id, amount=5000, target_role="distributor", status="approved"),
-            Recharge(user_id=user.id, amount=10000, target_role="agent", status="pending"),
+            Payment(email="u@example.com", amount=888, target_role="member_license", status="paid"),
+            Payment(email="u@example.com", amount=5000, target_role="distributor", status="paid"),
+            Payment(email="u@example.com", amount=10000, target_role="agent", status="pending"),
         ])
         db_session.commit()
 
@@ -114,13 +109,13 @@ class TestDashboardAPI:
         assert resp.status_code == 200
         data = resp.json()
         # 888 + 5000 = 5888 (pending 不计)
-        assert Decimal(data["today_recharge_total"]) == Decimal("5888")
+        assert Decimal(data["today_payment_total"]) == Decimal("5888")
 
     def test_today_new_users(self, client, db_session):
         admin = _make_admin(db_session)
         db_session.add_all([
-            User(email="u1@example.com", role="user", status="active"),
-            User(email="u2@example.com", role="user", status="active"),
+            User(email="u1@example.com", role="distributor", status="active"),
+            User(email="u2@example.com", role="distributor", status="active"),
         ])
         db_session.commit()
 

@@ -8,7 +8,7 @@ class CommissionConfig(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     role = Column(
-        Enum("user", "member", "distributor", "agent", name="commission_role"),
+        Enum("distributor", "agent", name="commission_role"),
         nullable=False,
     )
     scene = Column(String(32), nullable=False)

@@ -1,8 +1,8 @@
 from app.models.user import User
 from app.models.admin_user import AdminUser
 from app.models.email_verification_code import EmailVerificationCode
-from app.models.invite_code import InviteCode
-from app.models.recharge import Recharge
+from app.models.referral_code import ReferralCode
+from app.models.payment import Payment
 from app.models.sale import Sale
 from app.models.license import License
 from app.models.commission_config import CommissionConfig
@@ -17,8 +17,8 @@ __all__ = [
     "User",
     "AdminUser",
     "EmailVerificationCode",
-    "InviteCode",
-    "Recharge",
+    "ReferralCode",
+    "Payment",
     "Sale",
     "License",
     "CommissionConfig",

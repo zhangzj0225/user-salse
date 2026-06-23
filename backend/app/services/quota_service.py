@@ -4,7 +4,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app.models.recharge import Recharge
+from app.models.payment import Payment
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -42,13 +42,13 @@ class QuotaService:
         """
         user = self._get_user(user_id, db)
 
-        # 已销售记录：该用户作为 parent_id 的已批准充值记录
+        # 已销售记录：该用户作为 parent_id 的已批准支付记录
         # 使用 JOIN 预加载 child_email，避免 N+1 查询
         sales_records = (
-            db.query(Recharge, User)
-            .join(User, Recharge.user_id == User.id)
-            .filter(User.parent_id == user.id, Recharge.status == "approved")
-            .order_by(Recharge.created_at.desc())
+            db.query(Payment, User)
+            .join(User, Payment.user_id == User.id)
+            .filter(User.parent_id == user.id, Payment.status == "paid")
+            .order_by(Payment.created_at.desc())
             .all()
         )
 
@@ -62,7 +62,7 @@ class QuotaService:
             "can_replenish": remaining == 0,
             "sales_records": [
                 {
-                    "recharge_id": r.id,
+                    "payment_id": r.id,
                     "child_email": u.email,
                     "amount": str(r.amount),
                     "target_role": r.target_role,

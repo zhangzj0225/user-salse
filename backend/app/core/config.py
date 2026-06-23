@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     # CORS 允许的来源，逗号分隔。默认 "*"（开发），生产通过 .env 设具体域名。
     CORS_ORIGINS: str = "*"
 
+    # SMTP 邮件配置（AUTH_MODE=email 时必需）
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASS: str = ""
+    SMTP_FROM: str = ""
+    # 邮件验证码有效期（分钟）
+    EMAIL_CODE_EXPIRE_MINUTES: int = 5
+
     model_config = {"env_file": ".env"}
 
 
@@ -53,6 +62,21 @@ def validate_security_secrets() -> None:
         return
 
     msg = f"生产环境使用默认密钥: {insecure}，请在 .env 中配置安全值"
+    if settings.ENV == "production":
+        raise RuntimeError(msg)
+    logger.warning("WARNING: %s", msg)
+
+
+def validate_auth_mode() -> None:
+    """SEC-2: 生产环境禁止使用 mock 认证。
+
+    mock 模式下验证码固定为 123456，任何人可登录任意邮箱。
+    生产环境必须设 AUTH_MODE=email 并配置 SMTP。
+    """
+    if settings.AUTH_MODE != "mock":
+        return
+
+    msg = "生产环境禁止使用 AUTH_MODE=mock（验证码固定 123456），请设 AUTH_MODE=email 并配置 SMTP"
     if settings.ENV == "production":
         raise RuntimeError(msg)
     logger.warning("WARNING: %s", msg)

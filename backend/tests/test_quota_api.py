@@ -43,32 +43,6 @@ class TestQuotaAPI:
         assert resp.status_code == 200
         assert resp.json()["remaining"] == 8
 
-    def test_get_quota_user_forbidden(self, client, db_session):
-        """普通用户 → 403"""
-        user = User(email="user@example.com", role="user", status="active")
-        db_session.add(user)
-        db_session.commit()
-
-        token = create_access_token(subject=user.id, role="user", token_type="user")
-        resp = client.get(
-            "/api/v1/quota",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert resp.status_code == 403
-
-    def test_get_quota_member_forbidden(self, client, db_session):
-        """888 会员 → 403"""
-        user = User(email="member@example.com", role="member", status="active")
-        db_session.add(user)
-        db_session.commit()
-
-        token = create_access_token(subject=user.id, role="member", token_type="user")
-        resp = client.get(
-            "/api/v1/quota",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert resp.status_code == 403
-
     def test_get_quota_zero_shows_can_replenish(self, client, db_session):
         """额度为 0 时 can_replenish=True"""
         user = User(email="zero@example.com", role="agent", status="active",

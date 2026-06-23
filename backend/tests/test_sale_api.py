@@ -44,7 +44,7 @@ class TestSalesAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["customer_id"] is not None
-        assert data["recharge_id"] is not None
+        assert data["payment_id"] is not None
         assert data["remaining_quota"] == 4
 
     def test_sell_success_distributor(self, client, db_session):
@@ -62,19 +62,6 @@ class TestSalesAPI:
         )
         assert resp.status_code == 200
         assert resp.json()["remaining_quota"] == 10
-
-    def test_sell_user_forbidden(self, client, db_session):
-        user = User(email="user@example.com", role="user", status="active")
-        db_session.add(user)
-        db_session.commit()
-
-        token = create_access_token(subject=user.id, role="user", token_type="user")
-        resp = client.post(
-            "/api/v1/sales",
-            json={"customer_email": "customer@example.com", "verification_code": MOCK_CODE},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert resp.status_code == 403
 
     def test_sell_zero_quota(self, client, db_session):
         agent = User(email="agent@example.com", role="agent", status="active",
@@ -95,7 +82,7 @@ class TestSalesAPI:
     def test_sell_duplicate_email(self, client, db_session):
         agent = User(email="agent@example.com", role="agent", status="active",
                      account_quota=5, account_used=0)
-        existing = User(email="taken@example.com", role="user", status="active")
+        existing = User(email="taken@example.com", role="distributor", status="active")
         db_session.add_all([agent, existing])
         db_session.commit()
         _make_code(db_session, "taken@example.com")

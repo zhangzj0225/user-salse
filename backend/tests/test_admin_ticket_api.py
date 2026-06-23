@@ -18,7 +18,7 @@ def _make_admin(db):
 
 
 def _make_user_with_ticket(db, email="user@example.com", amount="200.00"):
-    user = User(email=email, role="user", status="active")
+    user = User(email=email, role="distributor", status="active")
     db.add(user)
     db.commit()
     # 给用户佣金余额
@@ -45,10 +45,10 @@ class TestListTicketsAPI:
 
     def test_requires_admin_role(self, client, db_session):
         """普通用户 token 不能访问"""
-        user = User(email="user@example.com", role="user", status="active")
+        user = User(email="user@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
-        token = create_access_token(subject=user.id, role="user", token_type="user")
+        token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.get(
             "/api/v1/admin/tickets",
             headers={"Authorization": f"Bearer {token}"},
@@ -130,7 +130,7 @@ class TestApproveTicketAPI:
         admin = _make_admin(db_session)
         token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
         resp = client.post(
-            "/api/v1/admin/tickets/99999/approve",
+            f"/api/v1/admin/tickets/99999/approve",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 404
@@ -171,7 +171,7 @@ class TestRejectTicketAPI:
         admin = _make_admin(db_session)
         token = create_access_token(subject=admin.id, role="super_admin", token_type="admin")
         resp = client.post(
-            "/api/v1/admin/tickets/99999/reject",
+            f"/api/v1/admin/tickets/99999/reject",
             json={"reject_reason": "test"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -203,7 +203,7 @@ class TestRejectTicketAPI:
         )
 
         # 用户可再次创建工单（300 已解冻）
-        user_token = create_access_token(subject=user.id, role="user", token_type="user")
+        user_token = create_access_token(subject=user.id, role="distributor", token_type="user")
         resp = client.post(
             "/api/v1/users/me/tickets",
             json={"amount": "300.00", "payment_method": "支付宝:yyy"},

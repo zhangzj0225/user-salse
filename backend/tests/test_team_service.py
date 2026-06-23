@@ -6,7 +6,7 @@ from app.models.user import User
 from app.services.team_service import TeamService
 
 
-def _make_user(db, email, role="user", parent_id=None, nickname=None):
+def _make_user(db, email, role="distributor", parent_id=None, nickname=None):
     u = User(email=email, role=role, status="active", parent_id=parent_id, nickname=nickname)
     db.add(u)
     db.flush()
@@ -83,7 +83,7 @@ class TestGetTeamTree:
         # M2: 不应包含 email 字段
         assert "email" not in child_node
         assert child_node["nickname"] == "小C"
-        assert child_node["role"] == "user"
+        assert child_node["role"] == "distributor"
 
     def test_total_count_consistent_with_tree(self, db_session):
         """M1: total_count 与树中实际节点数一致"""

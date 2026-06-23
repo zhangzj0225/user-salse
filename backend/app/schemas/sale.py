@@ -12,5 +12,5 @@ class SellAccountRequest(BaseModel):
 class SellAccountResponse(BaseModel):
     """额度销售响应。"""
     customer_id: int
-    recharge_id: int
+    payment_id: int
     remaining_quota: int

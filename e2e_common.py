@@ -35,6 +35,28 @@ def _ensure_backend_on_path():
 
 
 # ═══════════════════════════════════════════════════════════════
+# 加载后端 .env（确保密钥与运行中的后端一致）
+# ═══════════════════════════════════════════════════════════════
+# 测试脚本从项目根目录运行，而后端从 backend/ 运行并读取 backend/.env。
+# 若不加载此文件，INVITE_CODE_SECRET 等密钥会使用默认值，导致 seed_user
+# 生成的推荐码签名与后端不一致，后端验证时返回"推荐码无效"。
+_env_file = os.path.join(_BACKEND_ROOT, ".env")
+if os.path.exists(_env_file):
+    with open(_env_file) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line or _line.startswith("#"):
+                continue
+            if "=" in _line:
+                _key, _, _val = _line.partition("=")
+                os.environ.setdefault(_key.strip(), _val.strip())
+
+# 测试安全覆盖：强制 mock 认证 + dev 环境（不受 .env 中 AUTH_MODE=email 影响）
+os.environ["ENV"] = "dev"
+os.environ["AUTH_MODE"] = "mock"
+
+
+# ═══════════════════════════════════════════════════════════════
 # 配置（环境变量 → 默认值）
 # ═══════════════════════════════════════════════════════════════
 
@@ -72,7 +94,7 @@ def api(method, path, data=None, t=None, timeout=None):
         dict: JSON 响应。HTTP 错误时返回 {"_e": status_code, "detail": "..."}
     """
     url = f"{Config.API_BASE_URL}{path}"
-    body = json.dumps(data).encode() if data else None
+    body = json.dumps(data).encode() if data is not None else None
     headers = {"Content-Type": "application/json"}
     if t:
         headers["Authorization"] = f"Bearer {t}"
@@ -164,11 +186,58 @@ def admin_login():
     return {"token": resp["data"]["token"]}
 
 
-def register_user(email, invite_code):
-    """注册新用户（自动发送验证码 + 注册），返回 API 响应 dict。"""
-    api("POST", "/api/v1/auth/send-email-code", {"email": email, "scene": "register"})
-    return api("POST", "/api/v1/auth/register",
-               {"email": email, "code": Config.MOCK_CODE, "invite_code": invite_code})
+def login_user(email):
+    """冷启动登录（首次登录自动创建用户），返回 API 响应 dict。
+
+    PRD v2: 注册接口已删除，login API 支持首次登录创建用户（mock 模式）。
+    """
+    return login_as(email)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 推荐码 & 支付 Helpers（PRD v2）
+# ═══════════════════════════════════════════════════════════════
+
+def get_referral_code(t):
+    """获取当前用户的持久推荐码（GET /api/v1/referral-code）。
+
+    PRD v2: 推荐码为持久码，1人1码，替代旧的邀请码生成接口。
+    """
+    return api("GET", "/api/v1/referral-code", t=t)
+
+
+def create_payment(email, amount, t, referral_code=None):
+    """创建支付（POST /api/v1/payments/create）。
+
+    PRD v2: 充值改为支付，请求体从 {amount} 改为 {email, amount, referral_code?}。
+    推荐码选填，无推荐码=无佣金。
+
+    Args:
+        email: 支付用户邮箱
+        amount: 支付金额
+        t: Bearer token
+        referral_code: 推荐码（选填）
+    """
+    body = {"email": email, "amount": amount}
+    if referral_code:
+        body["referral_code"] = referral_code
+    return api("POST", "/api/v1/payments/create", body, t)
+
+
+def approve_payment(pid, at):
+    """管理员批准支付（POST /api/v1/admin/payments/{id}/approve）。"""
+    return api("POST", f"/api/v1/admin/payments/{pid}/approve", data={}, t=at)
+
+
+def reject_payment(pid, reason, at):
+    """管理员拒绝支付（POST /api/v1/admin/payments/{id}/reject）。"""
+    return api("POST", f"/api/v1/admin/payments/{pid}/reject",
+               {"reject_reason": reason}, t=at)
+
+
+def get_payments(t):
+    """获取支付记录列表（GET /api/v1/payments）。"""
+    return api("GET", "/api/v1/payments", t=t)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -176,10 +245,10 @@ def register_user(email, invite_code):
 # ═══════════════════════════════════════════════════════════════
 
 def test_email(prefix, n, ts=None):
-    """生成唯一测试邮箱: {prefix}_{ts}_{n}@test.com"""
+    """生成唯一测试邮箱: {prefix}_{ts}_{n}@test.com（全小写，与后端 M1 一致）"""
     if ts is None:
         ts = str(int(time.time()))[-4:]
-    return f"{prefix}_{ts}_{n}@test.com"
+    return f"{prefix}_{ts}_{n}@test.com".lower()
 
 
 def make_ts():
@@ -198,30 +267,36 @@ def get_backend_session():
     return get_session_local()()
 
 
-def seed_user(email, parent_id, role="user", db=None):
-    """直接 DB 插入用户（绕过注册流程），返回 {"id", "email", "invite_code"}。"""
+def seed_user(email, parent_id, role="distributor", db=None):
+    """直接 DB 插入用户（绕过登录流程），返回 {"id", "email", "referral_code"}。
+    
+    PRD v2: 角色只有 distributor 和 agent，默认 distributor。
+    创建 ReferralCode 记录（使用后端密钥签名），使推荐码可通过 API 验证。
+    """
     _ensure_backend_on_path()
     from app.models.user import User
-    from app.models.invite_code import InviteCode
+    from app.models.referral_code import ReferralCode
     from app.core.security import generate_invite_code
 
     own_db = db is None
     if own_db:
         db = get_backend_session()
 
+    email = email.strip().lower()
     u = User(email=email, role=role, status="active", parent_id=parent_id)
     db.add(u)
     db.flush()
-    ic = generate_invite_code(u.id)
-    u.invite_code = ic
-    db.add(InviteCode(code=ic, generator_id=u.id, key_version=1))
+    rc_code = generate_invite_code(u.id)
+    u.referral_code = rc_code
+    u.referral_code_generated = 1
+    db.add(ReferralCode(code=rc_code, user_id=u.id, key_version=1, is_active=1))
     if own_db:
         db.commit()
-        uid, uic = u.id, ic
+        uid = u.id
         db.close()
     else:
-        uid, uic = u.id, ic
-    return {"id": uid, "email": email, "invite_code": uic}
+        uid = u.id
+    return {"id": uid, "email": email, "referral_code": None}
 
 
 def seed_users(names_parents, ts=None):
@@ -232,11 +307,13 @@ def seed_users(names_parents, ts=None):
         ts: 时间戳后缀
 
     Returns:
-        dict: {name: {"id", "email", "invite_code"}}
+        dict: {name: {"id", "email", "referral_code"}}
+
+    不再创建 ReferralCode 记录 — 推荐码由后端在支付审批时生成。
     """
     _ensure_backend_on_path()
     from app.models.user import User
-    from app.models.invite_code import InviteCode
+    from app.models.referral_code import ReferralCode
     from app.core.security import generate_invite_code
 
     if ts is None:
@@ -244,15 +321,24 @@ def seed_users(names_parents, ts=None):
     db = get_backend_session()
     info = {}
     for name, parent_name in names_parents:
-        email = test_email(f"seed", name, ts)
+        email = test_email(f"seed", name, ts).lower()
         parent_id = info[parent_name]["id"] if parent_name else None
-        u = User(email=email, role="user", status="active", parent_id=parent_id)
+        u = User(email=email, role="distributor", status="active", parent_id=parent_id)
         db.add(u)
         db.flush()
         code = generate_invite_code(u.id)
-        u.invite_code = code
-        db.add(InviteCode(code=code, generator_id=u.id, key_version=1))
-        info[name] = {"email": email, "id": u.id, "invite_code": code}
+        u.referral_code = code
+        u.referral_code_generated = 1
+        db.add(ReferralCode(code=code, user_id=u.id, key_version=1, is_active=1))
+        info[name] = {"email": email, "id": u.id, "referral_code": code}
     db.commit()
     db.close()
     return info
+
+
+def get_referral_code_str(t):
+    """获取当前用户的持久推荐码字符串（便捷方法，从后端 API 获取）。
+
+    替代旧 seed_user 中直接生成推荐码的方式，确保签名密钥与后端一致。
+    """
+    return api("GET", "/api/v1/referral-code", t=t)["data"]["code"]

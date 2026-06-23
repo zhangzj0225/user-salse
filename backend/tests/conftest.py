@@ -2,7 +2,8 @@ import os
 
 # 测试环境默认 dev：SEC-1 默认 ENV=production（fail-closed），测试需显式降级，
 # 否则 TestClient startup 会因默认密钥抛 RuntimeError。必须在 import app.* 之前设置。
-os.environ.setdefault("ENV", "dev")
+os.environ["ENV"] = "dev"
+os.environ["AUTH_MODE"] = "mock"
 
 import pytest
 from decimal import Decimal
@@ -80,20 +81,16 @@ def seed_commission_configs(db_session):
     """
     configs = [
         # agent (代理) — 5 条
-        CommissionConfig(role="agent", scene="recharge_888", reward_type="fixed", reward_value=Decimal("488.40")),
-        CommissionConfig(role="agent", scene="recharge_5000", reward_type="fixed", reward_value=Decimal("2750.00")),
-        CommissionConfig(role="agent", scene="recharge_10000", reward_type="fixed", reward_value=Decimal("5500.00")),
+        CommissionConfig(role="agent", scene="first_reward_888", reward_type="fixed", reward_value=Decimal("488.40")),
+        CommissionConfig(role="agent", scene="first_reward_5000", reward_type="fixed", reward_value=Decimal("2750.00")),
+        CommissionConfig(role="agent", scene="first_reward_10000", reward_type="fixed", reward_value=Decimal("5500.00")),
         CommissionConfig(role="agent", scene="followup_reward", reward_type="fixed", reward_value=Decimal("133.20")),
         CommissionConfig(role="agent", scene="team_bonus", reward_type="percentage", reward_value=Decimal("0.05")),
         # distributor (经销商) — 4 条
-        CommissionConfig(role="distributor", scene="recharge_888", reward_type="fixed", reward_value=Decimal("355.20")),
-        CommissionConfig(role="distributor", scene="recharge_5000", reward_type="fixed", reward_value=Decimal("2000.00")),
-        CommissionConfig(role="distributor", scene="recharge_10000", reward_type="fixed", reward_value=Decimal("4000.00")),
+        CommissionConfig(role="distributor", scene="first_reward_888", reward_type="fixed", reward_value=Decimal("355.20")),
+        CommissionConfig(role="distributor", scene="first_reward_5000", reward_type="fixed", reward_value=Decimal("2000.00")),
+        CommissionConfig(role="distributor", scene="first_reward_10000", reward_type="fixed", reward_value=Decimal("4000.00")),
         CommissionConfig(role="distributor", scene="team_bonus", reward_type="percentage", reward_value=Decimal("0.04")),
-        # member (888会员) — 1 条
-        CommissionConfig(role="member", scene="recharge_888", reward_type="fixed", reward_value=Decimal("177.60")),
-        # user (普通用户) — 1 条
-        CommissionConfig(role="user", scene="recharge_888", reward_type="fixed", reward_value=Decimal("177.60")),
     ]
     db_session.add_all(configs)
     db_session.flush()

@@ -6,8 +6,8 @@ from decimal import Decimal
 
 from app.models.user import User
 from app.models.email_verification_code import EmailVerificationCode
-from app.models.invite_code import InviteCode
-from app.models.recharge import Recharge
+from app.models.referral_code import ReferralCode
+from app.models.payment import Payment
 from app.models.sale import Sale
 from app.models.license import License
 from app.models.commission_config import CommissionConfig
@@ -21,29 +21,29 @@ from app.models.audit_log import AuditLog
 
 class TestUserModel:
     def test_create_user_with_email(self, db_session):
-        user = User(email="user@example.com", role="user", status="active")
+        user = User(email="user@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
         assert user.id is not None
         assert user.email == "user@example.com"
-        assert user.role == "user"
+        assert user.role == "distributor"
         assert user.status == "active"
 
     def test_email_is_unique(self, db_session):
-        user1 = User(email="dup@example.com", role="user", status="active")
+        user1 = User(email="dup@example.com", role="distributor", status="active")
         db_session.add(user1)
         db_session.commit()
 
-        user2 = User(email="dup@example.com", role="user", status="active")
+        user2 = User(email="dup@example.com", role="distributor", status="active")
         db_session.add(user2)
         with pytest.raises(Exception):
             db_session.commit()
 
-    def test_role_supports_member(self, db_session):
-        user = User(email="member@example.com", role="member", status="active")
+    def test_role_supports_distributor(self, db_session):
+        user = User(email="dist@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.commit()
-        assert user.role == "member"
+        assert user.role == "distributor"
 
     def test_role_supports_agent(self, db_session):
         user = User(email="agent@example.com", role="agent", status="active", account_quota=22)
@@ -63,7 +63,7 @@ class TestUserModel:
         db_session.add(parent)
         db_session.flush()
 
-        child = User(email="child@example.com", role="user", status="active", parent_id=parent.id)
+        child = User(email="child@example.com", role="distributor", status="active", parent_id=parent.id)
         db_session.add(child)
         db_session.commit()
 
@@ -75,7 +75,7 @@ class TestEmailVerificationCodeModel:
         record = EmailVerificationCode(
             email="test@example.com",
             code="123456",
-            scene="register",
+            scene="login",
             expires_at=datetime.now(timezone.utc),
         )
         db_session.add(record)
@@ -84,32 +84,28 @@ class TestEmailVerificationCodeModel:
         assert record.verified is False
 
 
-class TestInviteCodeModel:
-    def test_create_invite_code_without_target_role(self, db_session):
+class TestReferralCodeModel:
+    def test_create_referral_code(self, db_session):
         user = User(email="gen@example.com", role="agent", status="active")
         db_session.add(user)
         db_session.flush()
 
-        code = InviteCode(code="ABC123.SIG", generator_id=user.id)
+        code = ReferralCode(code="ABC123.SIG", user_id=user.id)
         db_session.add(code)
         db_session.commit()
         assert code.id is not None
-        assert code.used_by is None
-        assert code.used_at is None
+        assert code.is_active == 1
+        assert code.key_version == 1
 
 
-class TestRechargeModel:
-    def test_create_recharge(self, db_session):
-        user = User(email="recharge@example.com", role="user", status="active")
-        db_session.add(user)
-        db_session.flush()
-
-        recharge = Recharge(user_id=user.id, amount=888.00, target_role="member")
-        db_session.add(recharge)
+class TestPaymentModel:
+    def test_create_payment(self, db_session):
+        payment = Payment(email="payment@example.com", amount=888.00, target_role="member_license")
+        db_session.add(payment)
         db_session.commit()
-        assert recharge.id is not None
-        assert recharge.status == "pending"
-        assert recharge.target_role == "member"
+        assert payment.id is not None
+        assert payment.status == "pending"
+        assert payment.target_role == "member_license"
 
 
 class TestSaleModel:
@@ -127,28 +123,27 @@ class TestSaleModel:
 
 class TestLicenseModel:
     def test_create_license(self, db_session):
-        user = User(email="lic@example.com", role="member", status="active")
+        user = User(email="lic@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.flush()
 
         lic = License(
             code="LIC-ABC123",
             user_id=user.id,
-            email="lic@example.com",
-            source="recharge",
+            source="payment",
         )
         db_session.add(lic)
         db_session.commit()
         assert lic.id is not None
         assert lic.status == "unused"
-        assert lic.source == "recharge"
+        assert lic.source == "payment"
 
 
 class TestCommissionConfigModel:
     def test_create_config(self, db_session):
         config = CommissionConfig(
             role="agent",
-            scene="recharge_888",
+            scene="payment_888",
             reward_type="fixed",
             reward_value=488.40,
         )
@@ -156,27 +151,16 @@ class TestCommissionConfigModel:
         db_session.commit()
         assert config.id is not None
         assert config.role == "agent"
-        assert config.scene == "recharge_888"
+        assert config.scene == "payment_888"
         assert config.reward_type == "fixed"
         assert config.reward_value == Decimal("488.4000")
 
-    def test_role_supports_member(self, db_session):
-        config = CommissionConfig(
-            role="member",
-            scene="recharge_888",
-            reward_type="fixed",
-            reward_value=177.60,
-        )
-        db_session.add(config)
-        db_session.commit()
-        assert config.role == "member"
-
     def test_role_scene_unique(self, db_session):
-        c1 = CommissionConfig(role="agent", scene="recharge_888", reward_type="fixed", reward_value=488.40)
+        c1 = CommissionConfig(role="agent", scene="payment_888", reward_type="fixed", reward_value=488.40)
         db_session.add(c1)
         db_session.commit()
 
-        c2 = CommissionConfig(role="agent", scene="recharge_888", reward_type="fixed", reward_value=999.99)
+        c2 = CommissionConfig(role="agent", scene="payment_888", reward_type="fixed", reward_value=999.99)
         db_session.add(c2)
         with pytest.raises(Exception):
             db_session.commit()
@@ -192,7 +176,7 @@ class TestCommissionRecordModel:
             user_id=user.id,
             amount=133.20,
             type="followup_reward",
-            business_id="recharge_1_followup_1",
+            business_id="payment_1_followup_1",
         )
         db_session.add(record)
         db_session.commit()
@@ -241,28 +225,28 @@ class TestConfigChangeLogModel:
 
         log = ConfigChangeLog(
             admin_id=admin.id,
-            config_key="recharge_888",
+            config_key="payment_888",
             old_value="488.40",
             new_value="500.00",
         )
         db_session.add(log)
         db_session.commit()
         assert log.id is not None
-        assert log.config_key == "recharge_888"
+        assert log.config_key == "payment_888"
         assert log.old_value == "488.40"
         assert log.new_value == "500.00"
 
 
 class TestNotificationLogModel:
     def test_create_notification_log(self, db_session):
-        user = User(email="notif@example.com", role="user", status="active")
+        user = User(email="notif@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.flush()
 
         log = NotificationLog(
             user_id=user.id,
             event_type="commission_earned",
-            content={"amount": "488.40", "source": "recharge"},
+            content={"amount": "488.40", "source": "payment"},
         )
         db_session.add(log)
         db_session.commit()
@@ -272,17 +256,17 @@ class TestNotificationLogModel:
         assert log.content["amount"] == "488.40"
 
 
-class TestInviteCodeUniqueness:
+class TestReferralCodeUniqueness:
     def test_code_is_unique(self, db_session):
         user = User(email="inv-uniq@example.com", role="agent", status="active")
         db_session.add(user)
         db_session.flush()
 
-        code1 = InviteCode(code="UNIQUE_CODE.SIG", generator_id=user.id)
+        code1 = ReferralCode(code="UNIQUE_CODE.SIG", user_id=user.id)
         db_session.add(code1)
         db_session.commit()
 
-        code2 = InviteCode(code="UNIQUE_CODE.SIG", generator_id=user.id)
+        code2 = ReferralCode(code="UNIQUE_CODE.SIG", user_id=user.id)
         db_session.add(code2)
         with pytest.raises(Exception):
             db_session.commit()
@@ -290,15 +274,15 @@ class TestInviteCodeUniqueness:
 
 class TestLicenseUniqueness:
     def test_code_is_unique(self, db_session):
-        user = User(email="lic-uniq@example.com", role="member", status="active")
+        user = User(email="lic-uniq@example.com", role="distributor", status="active")
         db_session.add(user)
         db_session.flush()
 
-        lic1 = License(code="LIC-UNIQUE", user_id=user.id, email="lic-uniq@example.com", source="recharge")
+        lic1 = License(code="LIC-UNIQUE", user_id=user.id, source="payment")
         db_session.add(lic1)
         db_session.commit()
 
-        lic2 = License(code="LIC-UNIQUE", user_id=user.id, email="lic-uniq@example.com", source="recharge")
+        lic2 = License(code="LIC-UNIQUE", user_id=user.id, source="payment")
         db_session.add(lic2)
         with pytest.raises(Exception):
             db_session.commit()

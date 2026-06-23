@@ -73,7 +73,7 @@ export default function SalesPage() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 16 }}>销售账号</h2>
+      <h2 style={{ marginBottom: 16 }}>额度销售</h2>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>

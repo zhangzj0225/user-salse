@@ -2,7 +2,7 @@ import { request } from "./api";
 
 // ── 后端 QuotaInfo（无 data 包装）──
 export interface SalesRecord {
-  recharge_id: number;
+  payment_id: number;
   child_email: string;
   amount: string;
   target_role?: string;
@@ -27,7 +27,7 @@ export interface CreateSaleParams {
 // ── 后端 SellAccountResponse（无 data 包装）──
 export interface SaleResponse {
   customer_id: number;
-  recharge_id: number;
+  payment_id: number;
   remaining_quota: number;
 }
 

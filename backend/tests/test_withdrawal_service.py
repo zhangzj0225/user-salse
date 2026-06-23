@@ -11,7 +11,7 @@ from app.services.withdrawal_service import WithdrawalService
 
 
 def _make_user(db, email="user@example.com"):
-    u = User(email=email, role="user", status="active")
+    u = User(email=email, role="distributor", status="active")
     db.add(u)
     db.flush()
     return u

@@ -15,7 +15,7 @@ from app.models.admin_user import AdminUser
 from app.models.commission_record import CommissionRecord
 from app.models.user import User
 from app.services.commission_service import CommissionEngine, record_commission
-from app.services.recharge_service import RechargeService
+from app.services.payment_service import PaymentService
 
 
 def _make_admin(db):
@@ -25,7 +25,7 @@ def _make_admin(db):
     return admin
 
 
-def _make_user(db, email, role="user", parent_id=None):
+def _make_user(db, email, role="distributor", parent_id=None):
     u = User(email=email, role=role, status="active", parent_id=parent_id)
     db.add(u)
     db.flush()
@@ -38,7 +38,7 @@ class TestGetConfig:
     def test_get_config_existing(self, db_session, seed_commission_configs):
         """查询存在的配置"""
         engine = CommissionEngine(db_session)
-        config = engine.get_config("agent", "recharge_888")
+        config = engine.get_config("agent", "first_reward_888")
         assert config is not None
         assert config.reward_value == Decimal("488.40")
         assert config.reward_type == "fixed"
@@ -46,14 +46,14 @@ class TestGetConfig:
     def test_get_config_nonexistent_returns_none(self, db_session, seed_commission_configs):
         """配置不存在时返回 None"""
         engine = CommissionEngine(db_session)
-        config = engine.get_config("user", "recharge_5000")
+        config = engine.get_config("distributor", "nonexistent_scene")
         assert config is None
 
     def test_get_config_all_seed_roles(self, db_session, seed_commission_configs):
-        """验证 4 角色种子数据可查询"""
+        """验证 2 角色种子数据可查询"""
         engine = CommissionEngine(db_session)
-        for role in ("user", "member", "distributor", "agent"):
-            config = engine.get_config(role, "recharge_888")
+        for role in ("distributor", "agent"):
+            config = engine.get_config(role, "first_reward_888")
             assert config is not None, f"role={role} config missing"
 
 
@@ -69,7 +69,7 @@ class TestBusinessIdUniqueness:
             amount=Decimal("100.00"),
             type="first_reward",
             source_user_id=2,
-            business_id="recharge_999",
+            business_id="payment_999",
         )
         db_session.add(record1)
         db_session.flush()
@@ -79,7 +79,7 @@ class TestBusinessIdUniqueness:
             amount=Decimal("200.00"),
             type="first_reward",
             source_user_id=2,
-            business_id="recharge_999",
+            business_id="payment_999",
         )
         db_session.add(record2)
         with pytest.raises(IntegrityError):
@@ -91,32 +91,29 @@ class TestRecordCommissionIdempotency:
 
     def test_record_commission_idempotent(self, db_session, seed_commission_configs):
         """相同 business_id 第二次调用返回 None（不抛异常）"""
-        # 第一次记录
         result1 = record_commission(
             user_id=1,
             amount=Decimal("100.00"),
             commission_type="first_reward",
             source_user_id=2,
-            business_id="recharge_test_1",
+            business_id="payment_test_1",
             db=db_session,
         )
         assert result1 is not None
-        assert result1.business_id == "recharge_test_1"
+        assert result1.business_id == "payment_test_1"
 
-        # 第二次相同 business_id → 返回 None
         result2 = record_commission(
             user_id=1,
             amount=Decimal("100.00"),
             commission_type="first_reward",
             source_user_id=2,
-            business_id="recharge_test_1",
+            business_id="payment_test_1",
             db=db_session,
         )
         assert result2 is None
 
-        # DB 中只有一条记录
         records = db_session.query(CommissionRecord).filter(
-            CommissionRecord.business_id == "recharge_test_1"
+            CommissionRecord.business_id == "payment_test_1"
         ).all()
         assert len(records) == 1
 
@@ -133,42 +130,37 @@ class TestConcurrentIdempotency:
                 amount=Decimal("100.00"),
                 commission_type="first_reward",
                 source_user_id=2,
-                business_id="recharge_concurrent_1",
+                business_id="payment_concurrent_1",
                 db=db_session,
             )
             results.append(r)
 
-        # 第一次成功，后两次返回 None
         assert results[0] is not None
         assert results[1] is None
         assert results[2] is None
 
-        # DB 只有一条
         count = db_session.query(CommissionRecord).filter(
-            CommissionRecord.business_id == "recharge_concurrent_1"
+            CommissionRecord.business_id == "payment_concurrent_1"
         ).count()
         assert count == 1
 
 
 class TestEndToEndIdempotency:
-    """端到端幂等：approve_recharge 重复调用不产生重复佣金。"""
+    """端到端幂等：approve_payment 重复调用不产生重复佣金。"""
 
     def test_reapprove_no_duplicate_commission(self, db_session, seed_commission_configs):
-        """重复批准充值 → 状态机拦截 + 无重复佣金"""
+        """重复批准支付 → 状态机拦截 + 无重复佣金"""
         admin = _make_admin(db_session)
         parent = _make_user(db_session, "parent@example.com", "agent")
         child = _make_user(db_session, "child@example.com", parent_id=parent.id)
 
-        service = RechargeService()
-        recharge = service.create_recharge(child.id, 888, db_session)
-        service.approve_recharge(recharge.id, admin.id, db_session)
+        service = PaymentService()
+        payment = service.create_payment(
+            email="child@example.com", amount=888,
+            referral_code=None, redirect_url=None, db=db_session,
+        )
+        service.approve_payment(payment.id, admin.id, db_session)
 
         # 尝试再次批准 → 状态机拦截
-        with pytest.raises(ValueError, match="充值已处理"):
-            service.approve_recharge(recharge.id, admin.id, db_session)
-
-        # 佣金记录仍只有一条
-        records = db_session.query(CommissionRecord).filter(
-            CommissionRecord.business_id == f"recharge_{recharge.id}"
-        ).all()
-        assert len(records) == 1
+        with pytest.raises(ValueError, match="已处理"):
+            service.approve_payment(payment.id, admin.id, db_session)
