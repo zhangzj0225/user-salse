@@ -9,6 +9,8 @@
 
 VALID_PAYMENT_AMOUNTS = (888, 5000, 10000)
 
+# 888 支付不改变用户角色，仅生成 License 供外部业务系统激活。
+# "member_license" 是 Payment.target_role 的内部标记，非用户角色（用户角色仅 distributor/agent）。
 AMOUNT_ROLE_MAP = {
     888: "member_license",
     5000: "distributor",

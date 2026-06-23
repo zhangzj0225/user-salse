@@ -529,97 +529,17 @@ async def main():
             chk(False, f"TC2b: 团队页加载失败: {e}")
 
         # ═══ TC3: 充值 + 管理员审核 ═══
+        # PRD v2: 充值→支付，重新设计。本次跳过，后续单独补真实邮箱支付流程测试。
         print("\n--- TC3: 充值 + 管理员审核 ---")
-        print("  [自动] 2 秒后开始充值测试...")
-        await asyncio.sleep(2)
+        print("  [SKIP] PRD v2 已将充值替换为支付闭环（/api/v1/payments），")
+        print("  真实邮箱上下文中的支付测试将在后续迭代中追加。")
+        skip_msg("TC3: PRD v2 — 充值→支付，测试待补")
 
-        # 获取当前用户 token（从 localStorage）
-        try:
-            auth_data = await pg.evaluate("""
-                () => {
-                    const raw = localStorage.getItem('auth-storage');
-                    if (raw) return JSON.parse(raw);
-                    return null;
-                }
-            """)
-            user_token = auth_data["state"]["token"] if auth_data else None
-            user_info = auth_data["state"]["user"] if auth_data else None
-        except Exception:
-            user_token = None
-            user_info = None
-
-        if user_token:
-            # 提交充值
-            resp = api("POST", "/api/v1/recharges", {"amount": 888}, user_token)
-            if resp.get("data"):
-                rid = resp["data"]["id"]
-                chk(True, f"TC3a: 充值申请提交成功 (id={rid})")
-
-                # 管理员审核
-                api("POST", f"/api/v1/admin/recharges/{rid}/approve", t=at)
-                role = api("GET", "/api/v1/users/me", t=user_token)["data"]["role"]
-                chk(role == "member", f"TC3b: 充值审核通过，角色={role}")
-
-                # 刷新前端
-                await pg.goto(f"{UI}/", wait_until="networkidle")
-                await pg.wait_for_timeout(2000)
-                await pg.screenshot(path=f"{OUTPUT_DIR}/real_tc3_after_recharge.png")
-            else:
-                chk(False, f"TC3a: 充值申请失败: {resp}")
-        else:
-            chk(False, "TC3: 无法获取用户 token")
-
-        # ═══ TC4: 真实邮箱注册（如果用户已有账号则跳过） ═══
+        # ═══ TC4: 真实邮箱注册 ═══
+        # PRD v2: 开放注册已取消，用户通过冷启动登录或管理员创建。
         print("\n--- TC4: 真实邮箱注册测试 ---")
-        print("  [提示] 此测试需要一个新的邮箱地址")
-        print(f"  [提示] 当前测试邮箱 {REAL_EMAIL} 可能已注册")
-        do_register = os.environ.get("E2E_DO_REGISTER", "n").strip().lower()
-
-        if do_register == "y":
-            # 需要一个邀请码
-            # 先用管理员找一个已有代理
-            users = api("GET", "/api/v1/admin/users?role=agent&limit=1", t=at)
-            if users.get("users"):
-                agent_email = users["users"][0]["email"]
-                agent_login = api("POST", "/api/v1/auth/send-email-code",
-                                  {"email": agent_email, "scene": "login"})
-                # mock 模式下直接登录获取 token
-                agent_resp = api("POST", "/api/v1/auth/login",
-                                 {"email": agent_email, "code": "123456"})
-                if agent_resp.get("data"):
-                    agent_token = agent_resp["data"]["token"]
-                    ic_resp = api("POST", "/api/v1/invite-codes", t=agent_token)
-                    if ic_resp.get("data"):
-                        invite_code = ic_resp["data"]["code"]
-                        print(f"  [OK] 获取邀请码: {invite_code[:20]}...")
-
-                        # 在前端注册
-                        await fill_and_send_code(pg, REAL_EMAIL, scene="register")
-                        # 填邀请码（在发送验证码之后）
-                        await pg.locator("input[placeholder*='邀请码']:visible").fill(invite_code)
-                        await pg.wait_for_timeout(500)
-
-                        # 等待验证码邮件
-                        code2 = await fetch_verification_code(mail_page, timeout=90)
-                        if code2:
-                            chk(True, f"TC4a: 注册验证码获取: {code2}")
-                            await fill_code_and_submit(pg, code2, scene="register")
-
-                            if "/login" not in pg.url:
-                                chk(True, "TC4b: 注册成功")
-                                await pg.screenshot(path=f"{OUTPUT_DIR}/real_tc4_registered.png")
-                            else:
-                                chk(False, "TC4b: 注册失败（邮箱可能已注册）")
-                        else:
-                            chk(False, "TC4a: 注册验证码获取失败")
-                    else:
-                        print("  [SKIP] 无法生成邀请码")
-                else:
-                    print("  [SKIP] 代理登录失败，无法生成邀请码")
-            else:
-                print("  [SKIP] 系统中无代理用户")
-        else:
-            print("  [SKIP] 跳过注册测试")
+        print("  [SKIP] PRD v2 已取消开放注册，用户通过冷启动登录（send-email-code + login）自动创建。")
+        skip_msg("TC4: PRD v2 — 注册→冷启动登录")
 
         # ═══ 总结 ═══
         print(f"\n{'=' * 60}")
@@ -632,8 +552,8 @@ async def main():
     print("\n  真实邮箱 E2E 测试覆盖:")
     print("  TC1: 真实邮箱登录（QQ 邮箱验证码自动读取）")
     print("  TC2: 登录后浏览收益/团队页")
-    print("  TC3: 充值 + 管理员审核")
-    print("  TC4: 真实邮箱注册（可选）")
+    print("  TC3: [SKIP] PRD v2 — 充值→支付，测试待补")
+    print("  TC4: [SKIP] PRD v2 — 注册→冷启动登录")
 
 
 if __name__ == "__main__":

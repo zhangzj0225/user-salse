@@ -10,6 +10,7 @@ _DEFAULT_SECRET_KEY = "change-me-in-production"
 _DEFAULT_INVITE_SECRET = "invite-secret-change-me"
 _DEFAULT_LICENSE_SECRET = "license-secret-change-me"
 _DEFAULT_LICENSE_API_KEY = "license-api-key-change-me"
+_DEFAULT_PAYMENT_CALLBACK_SECRET = "payment-callback-secret-change-me"
 
 
 class Settings(BaseSettings):
@@ -21,6 +22,8 @@ class Settings(BaseSettings):
     INVITE_CODE_SECRET: str = _DEFAULT_INVITE_SECRET
     LICENSE_SECRET: str = _DEFAULT_LICENSE_SECRET
     LICENSE_API_KEY: str = _DEFAULT_LICENSE_API_KEY
+    # 支付回调 HMAC-SHA256 共享密钥（与 LICENSE_API_KEY 语义不同，应独立配置）
+    PAYMENT_CALLBACK_SECRET: str = _DEFAULT_PAYMENT_CALLBACK_SECRET
     # 运行环境：默认 production（fail-closed），生产忘设 ENV 也会强校验密钥。
     # 仅显式设 ENV=dev 时放宽（本地开发/测试）。
     ENV: Literal["dev", "production"] = "production"
@@ -57,6 +60,8 @@ def validate_security_secrets() -> None:
         insecure.append("LICENSE_SECRET")
     if settings.LICENSE_API_KEY == _DEFAULT_LICENSE_API_KEY:
         insecure.append("LICENSE_API_KEY")
+    if settings.PAYMENT_CALLBACK_SECRET == _DEFAULT_PAYMENT_CALLBACK_SECRET:
+        insecure.append("PAYMENT_CALLBACK_SECRET")
 
     if not insecure:
         return

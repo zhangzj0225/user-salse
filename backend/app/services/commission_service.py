@@ -55,11 +55,14 @@ def record_commission(
     )
     db.add(record)
     try:
-        db.flush()
+        # 使用 savepoint 回滚，确保 IntegrityError 不影响外层事务
+        # （外层的 payment 状态变更、License 生成等不会丢失）。
+        with db.begin_nested():
+            db.flush()
     except IntegrityError:
         # F4: 并发竞态——另一事务已插入同 business_id，UNIQUE 约束兜底。
-        # 使用 savepoint 回滚，不影响外层事务。
-        db.rollback()
+        # savepoint 已自动回滚，外层事务不受影响。
+        db.expunge(record)  # 将失败记录从 session 中移除
         logger.info(
             "Commission race resolved (idempotent): business_id=%s", business_id
         )

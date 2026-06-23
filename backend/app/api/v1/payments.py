@@ -87,7 +87,7 @@ def _verify_callback_signature(payment_id: int, payment_no: str, signature: str)
     import hmac
     payload = f"{payment_id}:{payment_no}"
     expected = hmac.new(
-        settings.LICENSE_API_KEY.encode(),
+        settings.PAYMENT_CALLBACK_SECRET.encode(),
         payload.encode(),
         hashlib.sha256,
     ).hexdigest()

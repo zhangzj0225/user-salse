@@ -1,5 +1,7 @@
 """支付相关 Pydantic schemas。"""
 
+import os
+import urllib.parse
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -9,6 +11,13 @@ from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validat
 
 VALID_AMOUNTS = (888, 5000, 10000)
 VALID_TARGET_ROLES = ("member_license", "distributor", "agent")
+
+# redirect_url 白名单（逗号分隔的 hostname 列表，可通过环境变量覆盖）
+_REDIRECT_ALLOWED_HOSTS: set = set(
+    h.strip().lower()
+    for h in os.environ.get("REDIRECT_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if h.strip()
+)
 
 
 class PaymentCreateRequest(BaseModel):
@@ -24,6 +33,28 @@ class PaymentCreateRequest(BaseModel):
     def validate_amount(cls, v: int) -> int:
         if v not in VALID_AMOUNTS:
             raise ValueError(f"支付金额必须为 {VALID_AMOUNTS} 之一")
+        return v
+
+    @field_validator("redirect_url")
+    @classmethod
+    def validate_redirect_url(cls, v: Optional[str]) -> Optional[str]:
+        """校验 redirect_url hostname 在白名单内（防开放重定向）。"""
+        if v is None:
+            return v
+        try:
+            parsed = urllib.parse.urlparse(v)
+        except Exception:
+            raise ValueError("redirect_url 格式无效")
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("redirect_url 必须使用 http 或 https 协议")
+        hostname = (parsed.hostname or "").lower()
+        if not hostname:
+            raise ValueError("redirect_url 必须包含有效的主机名")
+        if hostname not in _REDIRECT_ALLOWED_HOSTS:
+            raise ValueError(
+                f"redirect_url 主机名 '{hostname}' 不在白名单中。"
+                f"允许的主机: {sorted(_REDIRECT_ALLOWED_HOSTS)}"
+            )
         return v
 
 

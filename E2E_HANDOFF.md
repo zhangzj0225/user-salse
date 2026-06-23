@@ -164,9 +164,9 @@ python e2e_gap_cover.py
 # 全功能回归 (30/30)
 python e2e_full_flow.py
 
-# 可见浏览器测试
-python visible_e2e.py
-python visible_e2e_full.py
+# 可见浏览器测试（PRD v2 已删除 — 基于已废弃的注册/充值 API）
+# python visible_e2e.py     — 已删除
+# python visible_e2e_full.py — 已删除
 ```
 
 ## 8. Playwright 配置

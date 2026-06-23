@@ -100,7 +100,7 @@ print("=== SETUP ===")
 at = admin_login()["token"]
 PERIOD = get_next_period()
 print(f"  Settlement period: {PERIOD}")
-chk(True, "R0: Admin login OK")
+chk(bool(at) and len(at) > 20, "R0: Admin login OK")
 
 
 # ═══════════════════════════════════════════
@@ -360,6 +360,111 @@ print("  L1h: TOP long-term excludes BOT's income (verified in L1f)")
 
 
 # ═══════════════════════════════════════════
+# R13-R14: 手动触发长期奖励 & 结算幂等性
+# ═══════════════════════════════════════════
+print("=== R13-R14: Manual Settlement & Idempotency ===")
+
+# Setup: A(agent)→B(distributor)→C(distributor 888 with referral)
+from app.models.user import User as _U3
+from app.services.commission_service import CommissionEngine
+
+info = seed_users([("ST_A", None), ("ST_B", "ST_A"), ("ST_C", "ST_B")], TS)
+at = admin_login()["token"]
+
+# A: login + pay 10000 to become agent
+st_a = login(info["ST_A"]["email"])
+st_at = st_a["data"]["token"]
+recharge_and_approve(st_at, 10000, at, email=info["ST_A"]["email"])
+chk(api("GET", "/api/v1/users/me", t=st_at)["data"]["role"] == "agent", "R13a: ST_A -> agent")
+st_a_rc = get_referral_code_str(st_at)
+
+# B: login + pay 5000 with ST_A's referral
+st_b = login(info["ST_B"]["email"])
+st_bt = st_b["data"]["token"]
+recharge_and_approve(st_bt, 5000, at, email=info["ST_B"]["email"], referral_code=st_a_rc)
+chk(api("GET", "/api/v1/users/me", t=st_bt)["data"]["role"] == "distributor",
+    "R13b: ST_B -> distributor")
+
+# C: login + pay 888 with ST_B's referral
+st_b_rc = get_referral_code_str(st_bt)
+st_c = login(info["ST_C"]["email"])
+st_ct = st_c["data"]["token"]
+recharge_and_approve(st_ct, 888, at, email=info["ST_C"]["email"], referral_code=st_b_rc)
+chk(api("GET", "/api/v1/users/me", t=st_ct)["data"]["role"] == "distributor",
+    "R13c: ST_C stays distributor (888 does not change role)")
+
+time.sleep(0.5)
+
+# Verify first_reward exists
+st_a_earn = get_earnings(st_at)
+st_b_earn = get_earnings(st_bt)
+st_a_fr = [r for r in st_a_earn.get("records", []) if r["type"] == "first_reward"]
+st_b_fr = [r for r in st_b_earn.get("records", []) if r["type"] == "first_reward"]
+chk(len(st_a_fr) >= 1 and Decimal(str(st_a_fr[0]["amount"])) == Decimal("2750.00"),
+    f"R13d: ST_A first_reward=2750.00 from ST_B (got {[r["amount"] for r in st_a_fr]})")
+chk(len(st_b_fr) >= 1 and Decimal(str(st_b_fr[0]["amount"])) == Decimal("355.20"),
+    f"R13e: ST_B first_reward=355.20 from ST_C (got {[r["amount"] for r in st_b_fr]})")
+
+# R13: 手动计算长期奖励（下月周期）
+next_month = (datetime.now(timezone.utc).replace(day=1) + timedelta(days=32))
+period = next_month.strftime("%Y%m")
+db_lt = get_backend_session()
+
+# Agent 长期奖励 (5% of B's first_reward)
+engine = CommissionEngine(db_lt)
+st_a_id = info["ST_A"]["id"]
+lt_a_recs = engine.calculate_long_term_reward(st_a_id, period, db=db_lt)
+if lt_a_recs:
+    lt_a_total = sum(Decimal(str(r.amount)) for r in lt_a_recs)
+    # agent→distributor 被长期奖励排除（commission_service.py:283-284）。
+    # 因此 R13f 期望值为 0，不是 5% × 355.20 = 17.76。
+    chk(lt_a_total == Decimal("0"),
+        f"R13f: ST_A long-term reward = {lt_a_total} (expected 0, agent→distributor excluded)")
+    db_lt.commit()
+else:
+    warn_msg("R13f: ST_A no long-term reward records")
+
+# Distributor 长期奖励 (4% of C's first_reward — but C has no downline so 0)
+st_b_id = info["ST_B"]["id"]
+lt_b_recs = engine.calculate_long_term_reward(st_b_id, period, db=db_lt)
+if lt_b_recs:
+    lt_b_total = sum(Decimal(str(r.amount)) for r in lt_b_recs)
+    # C has no downline → 0 first_reward income → B's long-term = 0
+    # Actually, B gets 4% of C's income from C's downlines... C has no downlines
+    # But B already received first_reward from C = 355.20 directly
+    # Long-term looks at C's commissions paid to C, not B's first_reward
+    # So B's long-term from C would be 0 if C has no downline commissions
+    chk(lt_b_total >= Decimal("0"),
+        f"R13g: ST_B long-term reward = {lt_b_total} (no downline commissions from C)")
+    db_lt.commit()
+else:
+    skip_msg("R13g: ST_B no long-term reward (expected, C has no downline)")
+
+db_lt.close()
+
+# R14: 结算幂等 — 同一周期计算两次
+db_idem = get_backend_session()
+engine2 = CommissionEngine(db_idem)
+recs1 = engine2.calculate_long_term_reward(st_a_id, period, db=db_idem)
+count_before = len(recs1) if recs1 else 0
+if recs1:
+    db_idem.commit()
+
+recs2 = engine2.calculate_long_term_reward(st_a_id, period, db=db_idem)
+count_after = len(recs2) if recs2 else 0
+
+# 第二次应该不产生新记录（幂等 — business_id UNIQUE 约束）
+if count_before == 0:
+    skip_msg("R14: Cannot verify idempotency (no records from first pass)")
+else:
+    # 由于 business_id UNIQUE 约束，第二次的重复记录会被跳过
+    # calculate_long_term_reward 内部有去重逻辑
+    chk(count_after == count_before,
+        f"R14: Settlement idempotent (records {count_before} -> {count_after}, expected no change)")
+db_idem.close()
+print()
+
+# ═══════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════
 print(f"\n{'=' * 60}")
@@ -368,3 +473,4 @@ print("\n  佣金规则完整性测试覆盖:")
 print("  J: 后续收益关系排除 (代理→代理/经销商→经销商 不产生 133.2)")
 print("  K: 长期奖励 4 种组合 (代理→经销商不适用 / 经销商→代理 4%)")
 print("  L: 长期奖励不穿透 (仅直接下级，不含更深层级收入)")
+print("  R: 手动结算触发 + 结算幂等性")

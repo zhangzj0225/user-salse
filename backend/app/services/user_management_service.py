@@ -41,7 +41,7 @@ class UserManagementService:
             )
 
         if role:
-            if role not in ("user", "member", "distributor", "agent"):
+            if role not in ("distributor", "agent"):
                 raise ValueError("无效的角色")
             query = query.filter(User.role == role)
 

@@ -192,12 +192,12 @@ async def pw_tests():
             f"localStorage.setItem('auth-storage',"
             f"JSON.stringify({{state:{{token:'{btok}',user:{json.dumps(bu)}}},version:0}}))")
         for path, name in [("/", "home"), ("/earnings", "earnings"),
-                          ("/team", "team"), ("/recharge", "recharge"),
+                          ("/team", "team"),
                           ("/withdrawal", "withdrawal"), ("/sales", "sales"),
                           ("/profile", "profile")]:
             await pg.goto(f"{UI}{path}"); await pg.wait_for_timeout(1500)
             await pg.screenshot(path=f"{Config.E2E_OUTPUT_DIR}/s12_{name}.png")
-        chk(True, "S12: 7 screenshots saved")
+        chk(True, "S12: 6 screenshots saved")
         await br.close()
 
 

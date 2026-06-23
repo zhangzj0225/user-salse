@@ -9,7 +9,7 @@ import time
 from e2e_common import (
     Config, api, api_key, chk, skip_msg, warn_msg, summary,
     test_email, make_ts, login_as, admin_login, seed_user, seed_users,
-    get_backend_session, get_referral_code_str,
+    get_backend_session, get_referral_code_str, admin_create_seed,
 )
 
 MOCK = Config.MOCK_CODE
@@ -72,7 +72,7 @@ def get_quota_from_db(user_email):
 # ═══════════════════════════════════════════
 print("=== SETUP ===")
 at = admin_login()["token"]
-chk(True, "X0: Admin login OK")
+chk(bool(at) and len(at) > 20, "X0: Admin login OK")
 
 # ═══════════════════════════════════════════
 # A. 佣金规则全覆盖（需求核心 — 9 种首次奖励组合）
@@ -188,8 +188,8 @@ chk(q == 33, f"B3b: quota still 33 (888 gives 0 quota, got {q})")
 rid = recharge(5000, indept)["data"]["id"]
 approve_r(rid, at)
 me_after4 = get_me(indept)["data"]
-chk(me_after4["role"] in ("agent", "distributor"),
-    f"B4a: agent+5000 role={me_after4['role']} (may downgrade until backend restart)")
+chk(me_after4["role"] == "agent",
+    f"B4a: agent+5000 stays agent (role never downgrades, got {me_after4['role']})")
 q, used = get_quota_from_db(indep_email)
 chk(q == 44, f"B4b: quota=44 (33+11, got {q})")
 
@@ -219,7 +219,7 @@ approve_r(rid, at)
 
 # C3: 支付记录列表（888 支付不设置 user_id，可能不在用户列表中）
 recs = api("GET", "/api/v1/payments", t=c1t)
-chk(True, f"C3: payment list returned (total={recs.get('total', 0)})")
+chk("total" in recs, f"C3: payment list returned (total={recs.get('total', 0)})")
 
 print()
 
@@ -517,6 +517,149 @@ except Exception as ex:
 print()
 
 # ═══════════════════════════════════════════
+# J: 新增场景 — 管理员种子用户 / 冷启动 / 支付列表 / 线下支付 / 验证码
+# ═══════════════════════════════════════════
+
+# ── J16-J18: 管理员创建种子用户 ──
+print("=== J16-J18: Admin Create Seed User ===")
+# J16: 创建 agent 无推荐码
+seed_a = admin_create_seed(em("seed_agent"), "agent", at)
+chk("id" in seed_a.get("data", {}),
+    f"J16a: Created seed agent (id={seed_a.get('data',{}).get('id','?')})")
+chk(seed_a.get("data", {}).get("role") == "agent",
+    f"J16b: Seed agent role=agent")
+
+# J17: 创建 distributor + 推荐码（关联上级）
+a_rc_ext = ag1_rc  # AG1's referral code from setup
+seed_d = admin_create_seed(em("seed_dist"), "distributor", at, referral_code=a_rc_ext)
+chk("id" in seed_d.get("data", {}),
+    f"J17a: Created seed distributor with referral (id={seed_d.get('data',{}).get('id','?')})")
+# 验证 parent_id 设置
+seed_d_id = seed_d["data"]["id"]
+_db_seed = get_backend_session()
+from app.models.user import User as _U2
+su = _db_seed.query(_U2).filter(_U2.id == seed_d_id).first()
+if su:
+    chk(su.parent_id == ag1_id,
+        f"J17b: Seed user parent_id={su.parent_id} (expected {ag1_id})")
+else:
+    warn_msg("J17b: Cannot verify parent_id, user not found")
+_db_seed.close()
+
+# J18: 重复邮箱创建
+dup_resp = admin_create_seed(em("seed_agent"), "agent", at)
+chk(dup_resp.get("_e") == 400,
+    f"J18: Duplicate email rejected (code={dup_resp.get('_e')})")
+print()
+
+# ── J19: 冷启动登录断言 ──
+print("=== J19: Cold-Start Login ===")
+u_cold = login_as(em("coldstart"))
+cold_me = get_me(u_cold["data"]["token"])["data"]
+chk(cold_me["role"] == "distributor",
+    f"J19a: Cold-start role=distributor (got={cold_me['role']})")
+chk(cold_me["status"] == "active",
+    f"J19b: Cold-start status=active")
+chk(cold_me.get("parent_id") is None,
+    f"J19c: Cold-start has no parent_id")
+chk(cold_me.get("account_quota", 0) == 0,
+    f"J19d: Cold-start has 0 quota (no payment yet)")
+print()
+
+# ── J20-J21: 支付列表/筛选 ──
+print("=== J20-J21: Payment Listing ===")
+# J20: 用户自列支付（用 U0 自己的邮箱，确与 user_id 关联）
+u0_email = api("GET", "/api/v1/users/me", t=u0t)["data"]["email"]
+p1 = recharge(5000, u0t, email=u0_email)["data"]["id"]
+approve_r(p1, at)
+p2 = recharge(888, u0t, email=u0_email)["data"]["id"]
+approve_r(p2, at)
+
+# J20: 用户自列支付
+my_pays = api("GET", "/api/v1/payments", t=u0t)
+chk(my_pays.get("total", 0) >= 1,
+    f"J20: User payment list total={my_pays.get('total')} (expected >=1, 5000=user_id set, 888=NULL)")
+
+# J21: 管理员按状态筛选
+admin_pays = api("GET", "/api/v1/admin/payments?status=paid&limit=5", t=at)
+chk(admin_pays.get("total", 0) >= 1,
+    f"J21: Admin payment filter status=paid total={admin_pays.get('total')}")
+print()
+
+# ── J22-J23: 线下支付审批 ──
+print("=== J22-J23: Offline Payment ===")
+# J22: 线下审批无推荐码
+u_off1 = login_as(em("offline1"))
+utok_off1 = u_off1["data"]["token"]
+poff1 = recharge(10000, utok_off1, email=em("offline1"))["data"]["id"]
+approve_r(poff1, at)
+off1_earn = get_earn(utok_off1)
+off1_fr = [r for r in off1_earn.get("records", []) if r["type"] == "first_reward"]
+chk(len(off1_fr) == 0,
+    f"J22: Offline approve without referral -> 0 commission")
+
+# J23: 线下审批有推荐码
+u_off2 = login_as(em("offline2"))
+utok_off2 = u_off2["data"]["token"]
+poff2 = recharge(10000, utok_off2, email=em("offline2"), referral_code=a_rc_ext)["data"]["id"]
+approve_r(poff2, at)
+off2_earn = get_earn(ag1t)  # AG1's earnings (AG1 is the referrer)
+off2_fr = [r for r in off2_earn.get("records", [])
+           if r["type"] == "first_reward" and Decimal(str(r["amount"])) == Decimal("5500.00")]
+chk(len(off2_fr) >= 1,
+    f"J23: Offline approve with referral -> commission created (A got 5500)")
+print()
+
+# ── J24: 验证码过期 ──
+print("=== J24: Verification Code Expire ===")
+vc_email = em("vcexpire")
+api("POST", "/api/v1/auth/send-email-code", {"email": vc_email, "scene": "login"})
+# 手动将验证码过期时间改为过去
+_db_exp = get_backend_session()
+from app.models.email_verification_code import EmailVerificationCode as _EVC
+from datetime import datetime, timezone, timedelta
+vc_rec = _db_exp.query(_EVC).filter(
+    _EVC.email == vc_email, _EVC.verified == False
+).order_by(_EVC.created_at.desc()).first()
+if vc_rec:
+    vc_rec.expires_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    expired_code = vc_rec.code  # 在 session 关闭前取值
+    _db_exp.commit()
+    _db_exp.close()
+    # 尝试用过期码登录
+    resp_exp = api("POST", "/api/v1/auth/login",
+                   {"email": vc_email, "code": expired_code})
+    chk(resp_exp.get("_e") in (400, 401),
+        f"J24: Expired code rejected (code={resp_exp.get('_e')}, detail={resp_exp.get('detail','?')[:40]})")
+else:
+    _db_exp.close()
+    skip_msg("J24: No verification code record found")
+print()
+
+# ── J25: 管理员拒绝支付 ──
+print("=== J25: Admin Reject Payment ===")
+u_rej = login_as(em("reject_pay"))
+utok_rej = u_rej["data"]["token"]
+prej = recharge(5000, utok_rej, email=em("reject_pay"))["data"]["id"]
+reject_r(prej, "测试拒绝—黑名单", at)
+# 验证支付状态
+_db_rej = get_backend_session()
+from app.models.payment import Payment as _P
+pobj = _db_rej.query(_P).filter(_P.id == prej).first()
+if pobj:
+    chk(pobj.status == "failed" or pobj.status == "rejected",
+        f"J25a: Payment status={pobj.status}")
+    chk(pobj.reject_reason == "测试拒绝—黑名单",
+        f"J25b: Reject reason='{pobj.reject_reason}'")
+else:
+    warn_msg("J25: Payment not found")
+_db_rej.close()
+# 角色不应改变
+chk(get_me(utok_rej)["data"]["role"] == "distributor",
+    "J25c: Role unchanged after reject")
+print()
+
+# ═══════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════
 summary()
@@ -530,3 +673,4 @@ print("  F: 工单列表")
 print("  G: 管理员完整功能 (用户/看板/支付/工单/配置/重复审批)")
 print("  H: 通知系统")
 print("  I: 长期奖励补充 (经销商→经销商 4%)")
+print("  J: 种子用户创建/冷启动/支付列表/线下支付/验证码过期/支付拒绝")

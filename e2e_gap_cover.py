@@ -3,12 +3,16 @@
 Run with: backend server on 8000 + DATABASE_URL pointing to seeded deploy_test.db
 """
 from decimal import Decimal
+import json
 import time
+import urllib.error
+import urllib.request as _ur
 
 from e2e_common import (
-    Config, api, api_key, chk, skip_msg, summary,
+    Config, api, api_key, api_with_headers, chk, skip_msg, warn_msg, summary,
     test_email, make_ts, login_as, admin_login, seed_user,
     get_backend_session, get_referral_code_str,
+    make_callback_signature, admin_create_seed,
 )
 
 MOCK = Config.MOCK_CODE
@@ -63,7 +67,7 @@ def reject_t(tid, reason, at):
 # ═══════════════════════════════════════════
 print("=== SETUP ===")
 at = admin_login()["token"]
-chk(True, "G0: Admin login OK")
+chk(bool(at) and len(at) > 20, "G0: Admin login OK")
 
 # A: cold-start login -> agent (10000)
 a = login_as(em("A"))
@@ -79,13 +83,13 @@ a_id = get_me(atok)["data"]["id"]
 b_info = seed_user(em("B"), parent_id=a_id)
 b = login_as(b_info["email"])
 btok = b["data"]["token"]
-chk(True, "G0c: B registered under A")
+chk("token" in b.get("data", {}), "G0c: B registered under A")
 rid = recharge(5000, btok, referral_code=a_rc)["data"]["id"]
 approve_r(rid, at)
 chk(get_me(btok)["data"]["role"] == "distributor", "G0d: B -> distributor (5000 approved)")
 b_rc = get_referral_code_str(btok)
 
-# C: seed under B -> member (888)
+# C: seed under B -> distributor (888)
 c_info = seed_user(em("C"), parent_id=b_info["id"])
 c = login_as(c_info["email"])
 ctok = c["data"]["token"]
@@ -132,7 +136,7 @@ assert tid, "F1 needs ticket_id"
 
 # Approve first withdrawal
 approve_t(tid, at)
-chk(True, f"F1b: Ticket {tid} approved")
+chk(True, f"F1b: Ticket {tid} approved (via admin API)")
 
 # Verify available = original - withdrawn (NOT bounced back to original)
 ae2 = get_earn(atok)
@@ -281,8 +285,184 @@ api("PUT", "/api/v1/admin/configs/min_withdrawal_amount",
 print()
 
 # ═══════════════════════════════════════════
+# G18: 重复支付防护（pending_user_key 约束）
+# ═══════════════════════════════════════════
+print("=== G18: Duplicate Payment Prevention ===")
+dup_email = em("dup")
+u_dup = login_as(dup_email)
+utok_dup = u_dup["data"]["token"]
+p1 = recharge(5000, utok_dup, email=dup_email)
+chk("data" in p1, f"G18a: First payment created (id={p1.get('data',{}).get('id','?')})")
+p2 = recharge(888, utok_dup, email=dup_email)
+chk(p2.get("_e") == 400, f"G18b: Duplicate payment rejected (code={p2.get('_e')})")
+# Cleanup: approve first payment to release pending_user_key
+if "data" in p1:
+    approve_r(p1["data"]["id"], at)
+print()
+
+# ═══════════════════════════════════════════
+# G19-G20: 无推荐码=无佣金（5000/10000）
+# ═══════════════════════════════════════════
+print("=== G19-G20: No Referral = No Commission (5000/10000) ===")
+
+# G19: 5000 without referral
+u_nr5k = login_as(em("nr5k"))
+utok_nr5k = u_nr5k["data"]["token"]
+pid_nr5k = recharge(5000, utok_nr5k, email=em("nr5k"))["data"]["id"]
+approve_r(pid_nr5k, at)
+# 支付人本身永远不会有 first_reward（佣金打给推荐人），不能靠 earn API 断言。
+# 直接查 CommissionRecord 表验证零佣金记录。
+_db_nr5k = get_backend_session()
+from app.models.commission_record import CommissionRecord as _CR
+cr_nr5k = _db_nr5k.query(_CR).filter(_CR.business_id == f"payment:{pid_nr5k}").count()
+_db_nr5k.close()
+chk(cr_nr5k == 0,
+    f"G19: 5000 without referral -> 0 commission (DB records={cr_nr5k})")
+
+# G20: 10000 without referral
+u_nr10k = login_as(em("nr10k"))
+utok_nr10k = u_nr10k["data"]["token"]
+pid_nr10k = recharge(10000, utok_nr10k, email=em("nr10k"))["data"]["id"]
+approve_r(pid_nr10k, at)
+_db_nr10k = get_backend_session()
+cr_nr10k = _db_nr10k.query(_CR).filter(_CR.business_id == f"payment:{pid_nr10k}").count()
+_db_nr10k.close()
+chk(cr_nr10k == 0,
+    f"G20: 10000 without referral -> 0 commission (DB records={cr_nr10k})")
+print()
+
+# ═══════════════════════════════════════════
+# G21: 支付 redirect URL 白名单
+# ═══════════════════════════════════════════
+print("=== G21: Payment Redirect URL ===")
+# 合法 redirect URL
+p_redir = api("POST", "/api/v1/payments/create",
+              {"email": em("redirect_ok"), "amount": 888,
+               "redirect_url": "http://localhost:5173/callback"}, atok)
+chk("data" in p_redir,
+    f"G21a: Payment with valid redirect URL accepted (id={p_redir.get('data',{}).get('id','?')})")
+# 恶意 redirect URL — 后端已添加 hostname 白名单校验
+p_evil = api("POST", "/api/v1/payments/create",
+             {"email": em("redirect_evil"), "amount": 888,
+              "redirect_url": "https://evil.com/steal"}, atok)
+chk(p_evil.get("_e") in (400, 422),
+    f"G21b: Malicious redirect URL rejected (open redirect patched, code={p_evil.get('_e')})")
+print()
+
+# ═══════════════════════════════════════════
+# G23-G25: License 激活流程
+# ═══════════════════════════════════════════
+print("=== G23-G25: License Activate ===")
+# 获取 B 的 License 代码
+b_lic = api("GET", "/api/v1/users/me/license", t=btok)
+lic_code = b_lic.get("code", "")
+if lic_code:
+    # G23: 有效激活
+    act_resp = api_key("/api/v1/license/activate",
+                       {"code": lic_code, "business_user_id": "test_biz_user_001",
+                        "business_user_info": "测试业务系统用户"})
+    if act_resp.get("_e") == 401:
+        skip_msg("G23: License activate skipped (API key mismatch)")
+        skip_msg("G24: Wrong API key test skipped")
+        skip_msg("G25: Double activate test skipped")
+    else:
+        chk(act_resp.get("data", {}).get("success") is True,
+            f"G23: License activated (resp={act_resp})")
+
+        # G24: 错误 API Key
+        bad_req = _ur.Request(
+            f"{Config.API_BASE_URL}/api/v1/license/activate",
+            data=json.dumps({"code": lic_code, "business_user_id": "bad_key_test"}).encode(),
+            headers={"Content-Type": "application/json", "X-API-Key": "wrong-key"},
+            method="POST",
+        )
+        try:
+            _ur.urlopen(bad_req, timeout=Config.TIMEOUT)
+            chk(False, "G24: Wrong API Key should be rejected")
+        except urllib.error.HTTPError as e:
+            chk(e.code in (401, 403), f"G24: Wrong API Key rejected ({e.code})")
+
+        # G25: 重复激活
+        act_resp2 = api_key("/api/v1/license/activate",
+                            {"code": lic_code, "business_user_id": "test_biz_user_002"})
+        chk(act_resp2.get("data", {}).get("success") is False,
+            f"G25: Double activate rejected (resp={act_resp2})")
+else:
+    skip_msg("G23-G25: No license code available")
+print()
+
+# ═══════════════════════════════════════════
+# G26: 佣金幂等性（同一支付回调两次）
+# ═══════════════════════════════════════════
+print("=== G26: Commission Idempotency ===")
+u_idem = login_as(em("idem"))
+utok_idem = u_idem["data"]["token"]
+# 用 A 的推荐码支付（有佣金）
+pid_idem = recharge(5000, utok_idem, email=em("idem"), referral_code=a_rc)["data"]["id"]
+# 第一次回调处理
+sig = make_callback_signature(pid_idem, "test_pno_idem_001")
+cb1 = api_with_headers("POST", "/api/v1/payments/callback",
+                       {"payment_id": pid_idem, "payment_no": "test_pno_idem_001"},
+                       headers={"X-Signature": sig})
+chk("data" in cb1, f"G26a: First callback OK (status={cb1.get('data',{}).get('status','?')})")
+
+# 查询佣金条数
+_db3 = get_backend_session()
+from app.models.commission_record import CommissionRecord as _CR
+cr_count_1 = _db3.query(_CR).filter(_CR.business_id == f"payment:{pid_idem}").count()
+_db3.close()
+
+# 第二次回调（相同 payment_id + payment_no）
+sig2 = make_callback_signature(pid_idem, "test_pno_idem_001")
+cb2 = api_with_headers("POST", "/api/v1/payments/callback",
+                       {"payment_id": pid_idem, "payment_no": "test_pno_idem_001"},
+                       headers={"X-Signature": sig2})
+# 第二次回调：后端对已支付订单返回 200（幂等）或 400（已处理）。
+# _e 只在 HTTPError 时出现（4xx/5xx），200 响应没有 _e 键。
+cb2_ok = "data" in cb2
+cb2_idem = cb2.get("_e") == 400  # 400 = 已处理，幂等返回
+chk(cb2_ok or cb2_idem,
+    f"G26b: Second callback idempotent (ok={cb2_ok}, status={cb2.get('_e', 'N/A')})")
+
+_db3 = get_backend_session()
+cr_count_2 = _db3.query(_CR).filter(_CR.business_id == f"payment:{pid_idem}").count()
+_db3.close()
+chk(cr_count_1 == cr_count_2,
+    f"G26c: Commission records unchanged ({cr_count_1} -> {cr_count_2})")
+print()
+
+# ═══════════════════════════════════════════
+# G27-G28: 支付回调签名验证
+# ═══════════════════════════════════════════
+print("=== G27-G28: Payment Callback Signature ===")
+# 创建一笔支付用于测试回调
+u_cb = login_as(em("cb"))
+utok_cb = u_cb["data"]["token"]
+pid_cb = recharge(5000, utok_cb, email=em("cb"), referral_code=a_rc)["data"]["id"]
+pno_cb = "test_pno_sig_001"
+
+# G27: 正确签名
+sig_ok = make_callback_signature(pid_cb, pno_cb)
+cb_ok = api_with_headers("POST", "/api/v1/payments/callback",
+                         {"payment_id": pid_cb, "payment_no": pno_cb},
+                         headers={"X-Signature": sig_ok})
+chk("data" in cb_ok and cb_ok["data"].get("status") == "paid",
+    f"G27: Callback with valid signature -> paid (got: {cb_ok.get('data',{}).get('status', cb_ok.get('_e'))})")
+
+# G28: 错误签名
+sig_bad = "a" * 64  # 64 hex chars but wrong value
+cb_bad = api_with_headers("POST", "/api/v1/payments/callback",
+                          {"payment_id": pid_cb, "payment_no": "bad_pno"},
+                          headers={"X-Signature": sig_bad})
+chk(cb_bad.get("_e") == 403,
+    f"G28: Callback with invalid signature -> 403 (got {cb_bad.get('_e')})")
+print()
+
+# ═══════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════
 summary()
 print("  E2E gap coverage: F1 double-spending, reject/unfreeze, payment reject,")
-print("  license lifecycle, referral code persistence, team tree, admin config")
+print("  license lifecycle/activate, referral code persistence, team tree, admin config,")
+print("  duplicate payment prevention, no-referral=no-commission, redirect URL,")
+print("  commission idempotency, payment callback HMAC signature")

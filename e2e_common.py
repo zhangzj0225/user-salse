@@ -55,6 +55,9 @@ if os.path.exists(_env_file):
 os.environ["ENV"] = "dev"
 os.environ["AUTH_MODE"] = "mock"
 
+# 确保 backend/ 在 sys.path 上（Config 中的 _resolve_payment_callback_secret 需要 import backend settings）
+_ensure_backend_on_path()
+
 
 # ═══════════════════════════════════════════════════════════════
 # 配置（环境变量 → 默认值）
@@ -67,6 +70,18 @@ class Config:
     ADMIN_USERNAME = os.environ.get("E2E_ADMIN_USER", "admin")
     ADMIN_PASSWORD = os.environ.get("E2E_ADMIN_PASS", "admin123")
     LICENSE_API_KEY = os.environ.get("E2E_LICENSE_KEY", "deploy-test-license-api-key")
+    # 支付回调 HMAC 签名密钥（需与后端 PAYMENT_CALLBACK_SECRET 一致）
+    # 优先级：E2E_PAYMENT_CALLBACK_SECRET > PAYMENT_CALLBACK_SECRET > 后端 settings 值
+    # 不再硬编码默认值，从后端 config 读取以保持两端一致。
+    @staticmethod
+    def _resolve_payment_callback_secret():
+        from app.core.config import settings as _be_settings
+        return os.environ.get(
+            "E2E_PAYMENT_CALLBACK_SECRET",
+            os.environ.get("PAYMENT_CALLBACK_SECRET", _be_settings.PAYMENT_CALLBACK_SECRET),
+        )
+
+    PAYMENT_CALLBACK_SECRET = _resolve_payment_callback_secret()
     E2E_OUTPUT_DIR = os.environ.get("E2E_OUTPUT_DIR", os.path.join(_PROJECT_ROOT, "e2e_output"))
     TIMEOUT = int(os.environ.get("E2E_TIMEOUT", "15"))
 
@@ -296,7 +311,7 @@ def seed_user(email, parent_id, role="distributor", db=None):
         db.close()
     else:
         uid = u.id
-    return {"id": uid, "email": email, "referral_code": None}
+    return {"id": uid, "email": email, "referral_code": rc_code}
 
 
 def seed_users(names_parents, ts=None):
@@ -342,3 +357,59 @@ def get_referral_code_str(t):
     替代旧 seed_user 中直接生成推荐码的方式，确保签名密钥与后端一致。
     """
     return api("GET", "/api/v1/referral-code", t=t)["data"]["code"]
+
+
+# ═══════════════════════════════════════════════════════════════
+# 支付回调签名 & 自定义 Header Helpers
+# ═══════════════════════════════════════════════════════════════
+
+def make_callback_signature(payment_id, payment_no):
+    """计算支付回调 HMAC-SHA256 签名。
+
+    签名算法: HMAC-SHA256("{payment_id}:{payment_no}", PAYMENT_CALLBACK_SECRET)
+    与 backend/app/api/v1/payments.py:_verify_callback_signature 一致。
+    """
+    import hashlib
+    import hmac
+    payload = f"{payment_id}:{payment_no}"
+    sig = hmac.new(
+        Config.PAYMENT_CALLBACK_SECRET.encode(),
+        payload.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return sig
+
+
+def api_with_headers(method, path, data=None, headers=None):
+    """带自定义 headers 的 HTTP API 调用。
+
+    用于需要自定义 Header（如 X-Signature、X-API-Key 不同值）的场景。
+    与 api() 的区别：不会自动加 Authorization header，由调用方完全控制 headers。
+    """
+    url = f"{Config.API_BASE_URL}{path}"
+    body = json.dumps(data).encode() if data is not None else None
+    _headers = {"Content-Type": "application/json"}
+    if headers:
+        _headers.update(headers)
+    req = urllib.request.Request(url, data=body, method=method, headers=_headers)
+    try:
+        return json.loads(urllib.request.urlopen(req, timeout=Config.TIMEOUT).read())
+    except urllib.error.HTTPError as e:
+        resp_body = json.loads(e.read() if e.fp else b"{}")
+        return {"_e": e.code, "detail": resp_body.get("detail", str(e))}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 管理员 Helpers
+# ═══════════════════════════════════════════════════════════════
+
+def admin_create_seed(email, role, at, referral_code=None):
+    """管理员创建种子用户（POST /api/v1/admin/users/create）。
+
+    PRD v2: 替代旧注册流程，管理员直接创建 agent/distributor。
+    返回创建的用户信息 dict。
+    """
+    body = {"email": email, "role": role}
+    if referral_code:
+        body["referral_code"] = referral_code
+    return api("POST", "/api/v1/admin/users/create", body, t=at)
