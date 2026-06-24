@@ -46,7 +46,7 @@ class AuthService(ABC):
 
     @abstractmethod
     def authenticate(self, email: str, code: str, db: Session) -> tuple[User, str]:
-        """Login flow: find-or-create user (cold-start / admin seeding)."""
+        """Login flow: verify existing user only."""
         ...
 
 
@@ -56,6 +56,9 @@ class MockAuthService(AuthService):
     def send_email_code(self, email: str, scene: str, db: Session) -> str:
         # M1: 邮箱统一小写化
         email = email.strip().lower()
+        if scene == "login":
+            if not db.query(User).filter(User.email == email).first():
+                raise ValueError("用户不存在")
         code = self.MOCK_CODE
         record = EmailVerificationCode(
             email=email,
@@ -73,12 +76,9 @@ class MockAuthService(AuthService):
         record = _verify_email_code(db, email, "login", code)
         record.verified = True
 
-        # Cold-start / admin seeding: create user without parent_id.
         user = db.query(User).filter(User.email == email).first()
         if not user:
-            user = User(email=email, role="distributor", status="active")
-            db.add(user)
-            db.flush()
+            raise ValueError("用户不存在")
 
         db.commit()
 
@@ -140,6 +140,10 @@ class EmailAuthService(AuthService):
         # M1: 邮箱统一小写化
         email = email.strip().lower()
 
+        if scene == "login":
+            if not db.query(User).filter(User.email == email).first():
+                raise ValueError("用户不存在")
+
         # 生成 6 位随机数字验证码
         import secrets
         code = "".join(secrets.choice("0123456789") for _ in range(6))
@@ -173,9 +177,7 @@ class EmailAuthService(AuthService):
 
         user = db.query(User).filter(User.email == email).first()
         if not user:
-            user = User(email=email, role="distributor", status="active")
-            db.add(user)
-            db.flush()
+            raise ValueError("用户不存在")
 
         db.commit()
 

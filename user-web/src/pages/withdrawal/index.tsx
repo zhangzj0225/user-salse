@@ -98,6 +98,12 @@ export default function WithdrawalPage() {
       ),
     },
     {
+      title: "拒绝原因",
+      dataIndex: "reject_reason",
+      key: "reject_reason",
+      render: (reason: string | null) => reason || "-",
+    },
+    {
       title: "创建时间",
       dataIndex: "created_at",
       key: "created_at",

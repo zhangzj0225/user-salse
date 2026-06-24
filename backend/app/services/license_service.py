@@ -107,6 +107,15 @@ class LicenseService:
             .first()
         )
 
+    def get_user_licenses(self, user_id: int, db: Session) -> list[License]:
+        """获取用户的所有 License 列表。"""
+        return (
+            db.query(License)
+            .filter(License.user_id == user_id)
+            .order_by(License.id.desc())
+            .all()
+        )
+
     def verify_license(self, code: str, db: Session) -> dict:
         """验证 License：签名校验 + DB 查找 + 状态检查。
 

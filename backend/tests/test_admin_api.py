@@ -85,7 +85,12 @@ class TestAdminMe:
         )
         assert response.status_code == 401
 
-    def test_returns_403_with_user_token(self, client):
+    def test_returns_403_with_user_token(self, client, db_session):
+        # Create user first (FR-1: login requires existing user)
+        from app.models.user import User
+        db_session.add(User(email="test@example.com", role="distributor", status="active"))
+        db_session.flush()
+
         # Login as regular user
         client.post("/api/v1/auth/send-email-code", json={"email": "test@example.com"})
         resp = client.post(

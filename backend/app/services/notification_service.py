@@ -51,13 +51,13 @@ class NotificationService:
 
     @staticmethod
     def notify_subordinate_paid(
-        parent_id: int, child_email: str, db: Session
+        parent_id: int, child_email: str, amount: int, db: Session
     ) -> NotificationLog:
         """通知上级：下级支付成功。"""
         return NotificationService.send(
             user_id=parent_id,
             event_type="subordinate_paid",
-            content={"child_email": child_email},
+            content={"child_email": child_email, "amount": str(amount)},
             db=db,
         )
 
@@ -105,6 +105,55 @@ class NotificationService:
             user_id=user_id,
             event_type="payment_approved",
             content={"amount": amount, "new_role": new_role},
+            db=db,
+        )
+
+    @staticmethod
+    def _send_notification_email(to_email: str, event_type: str, content: dict | None) -> None:
+        """通过 SMTP 发送通知邮件（best-effort，失败仅记日志）。"""
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        from app.core.config import settings
+
+        subject = f"足球舆情系统 - 通知: {event_type}"
+        body = f"""
+您有一条新通知：
+
+事件类型：{event_type}
+内容：{content}
+
+— 足球舆情系统
+""".strip()
+
+        msg = MIMEMultipart()
+        msg["From"] = settings.SMTP_FROM
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        if settings.SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(
+                settings.SMTP_HOST, settings.SMTP_PORT
+            ) as server:
+                server.login(settings.SMTP_USER, settings.SMTP_PASS)
+                server.sendmail(settings.SMTP_FROM, [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(
+                settings.SMTP_HOST, settings.SMTP_PORT
+            ) as server:
+                server.starttls()
+                server.login(settings.SMTP_USER, settings.SMTP_PASS)
+                server.sendmail(settings.SMTP_FROM, [to_email], msg.as_string())
+
+        logger.info("Notification email sent: to=%s event_type=%s", to_email, event_type)
+
+    @staticmethod
+    def notify_seed_user_created(user_id, email, role, db):
+        return NotificationService.send(
+            user_id=user_id,
+            event_type="seed_user_created",
+            content={"email": email, "role": role, "login_guide": "请使用邮箱验证码登录分销系统"},
             db=db,
         )
 

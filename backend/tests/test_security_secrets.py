@@ -42,6 +42,7 @@ def test_production_env_with_secure_secrets_passes(monkeypatch):
     monkeypatch.setattr(config.settings, "INVITE_CODE_SECRET", "secure-invite-secret")
     monkeypatch.setattr(config.settings, "LICENSE_SECRET", "secure-license-secret")
     monkeypatch.setattr(config.settings, "LICENSE_API_KEY", "secure-api-key")
+    monkeypatch.setattr(config.settings, "PAYMENT_CALLBACK_SECRET", "secure-callback-secret")
     config.validate_security_secrets()
 
 

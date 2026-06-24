@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.constants import (
     VALID_PAYMENT_AMOUNTS, AMOUNT_ROLE_MAP, AMOUNT_QUOTA_MAP, ROLE_LEVEL,
+    get_valid_payment_amounts, get_amount_quota_map,
 )
 from app.models.payment import Payment
 from app.models.user import User
@@ -52,7 +53,7 @@ class PaymentService:
         - 5000: target_role='distributor', 检查email是否已存在用户
         - 10000: target_role='agent', 检查email是否已存在用户
         """
-        if amount not in VALID_PAYMENT_AMOUNTS:
+        if amount not in get_valid_payment_amounts(db):
             raise ValueError(f"支付金额必须为 {VALID_PAYMENT_AMOUNTS} 之一")
 
         email = email.strip().lower()
@@ -132,7 +133,20 @@ class PaymentService:
 
         # 佣金计算（如有推荐码）
         engine = CommissionEngine(db)
-        engine.process_payment(payment_id=payment.id)
+        records = engine.process_payment(payment_id=payment.id)
+
+        # 888 支付也通知推荐人（如有推荐码且有佣金记录）
+        if payment.referral_code and records:
+            from app.services.referral_service import ReferralService
+            result = ReferralService().validate_referral_code(payment.referral_code, db)
+            if result["valid"]:
+                from app.services.notification_service import NotificationService
+                NotificationService.notify_subordinate_paid(
+                    parent_id=result["user_id"],
+                    child_email=payment.email,
+                    amount=int(payment.amount),
+                    db=db,
+                )
 
     def _handle_role_payment(
         self, payment: Payment, db: Session, role: str
@@ -200,6 +214,7 @@ class PaymentService:
             NotificationService.notify_subordinate_paid(
                 parent_id=referrer_id,
                 child_email=payment.email,
+                amount=int(payment.amount),
                 db=db,
             )
 
@@ -353,6 +368,7 @@ class PaymentService:
             new_value={"status": "paid", "channel": "offline"},
             business_id=f"payment_{payment.id}",
             db=db,
+            operator_id=admin_id,
         )
 
         # 通知用户

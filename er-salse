@@ -1,0 +1,66 @@
+warning: in the working copy of '_bmad-output/implementation-artifacts/sprint-status.yaml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'admin-web/src/pages/approvals/index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'admin-web/src/pages/config/index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'admin-web/src/pages/dashboard/index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'admin-web/src/pages/tickets/index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'admin-web/src/pages/users/index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/alembic/versions/004_seed_commission_configs_v2.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/api/v1/license.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/schemas/team.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/audit_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/auth_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/dashboard_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/license_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/notification_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/payment_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/sale_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/system_config_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/services/team_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/test_auth_api.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/test_auth_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/test_notification.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/test_team_api.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/test_team_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'payment-app/src/pages/PayPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'user-web/vite.config.d.ts', LF will be replaced by CRLF the next time Git touches it
+ .../implementation-artifacts/sprint-status.yaml    |   2 [32m+[m[31m-[m
+ admin-web/src/pages/approvals/index.tsx            | 181 [32m++++++++++++++++++[m[31m-[m
+ admin-web/src/pages/config/index.tsx               | 136 [32m++++++++++++++[m[31m-[m
+ admin-web/src/pages/dashboard/index.tsx            |  41 [32m++++[m[31m-[m
+ admin-web/src/pages/tickets/index.tsx              | 179 [32m++++++++++++++++++[m[31m-[m
+ admin-web/src/pages/users/index.tsx                | 193 [32m++++++++++++++++++++[m[31m-[m
+ .../versions/004_seed_commission_configs_v2.py     |  16 [32m+[m[31m-[m
+ backend/app/api/v1/admin.py                        |  84 [32m+++++++++[m
+ backend/app/api/v1/auth.py                         |   4 [32m+[m[31m-[m
+ backend/app/api/v1/license.py                      |  24 [32m+++[m
+ backend/app/api/v1/payments.py                     |  11 [32m+[m[31m-[m
+ backend/app/core/constants.py                      |  36 [32m++++[m
+ backend/app/schemas/team.py                        |   2 [32m+[m
+ backend/app/services/audit_service.py              |   2 [32m+[m
+ backend/app/services/auth_service.py               |  18 [32m+[m[31m-[m
+ backend/app/services/dashboard_service.py          |   9 [32m+[m[31m-[m
+ backend/app/services/earnings_service.py           |   9 [32m+[m[31m-[m
+ backend/app/services/license_service.py            |   9 [32m+[m
+ backend/app/services/notification_service.py       |  53 [32m+++++[m[31m-[m
+ backend/app/services/payment_service.py            |  20 [32m++[m[31m-[m
+ backend/app/services/sale_service.py               |   2 [32m+[m[31m-[m
+ backend/app/services/scheduler_service.py          |  17 [32m+[m[31m-[m
+ backend/app/services/system_config_service.py      |   2 [32m+[m[31m-[m
+ backend/app/services/team_service.py               |   6 [32m+[m[31m-[m
+ backend/tests/test_admin_api.py                    |   7 [32m+[m[31m-[m
+ backend/tests/test_auth_api.py                     |  53 [32m++++[m[31m--[m
+ backend/tests/test_auth_service.py                 |  23 [32m++[m[31m-[m
+ backend/tests/test_notification.py                 |   1 [32m+[m
+ backend/tests/test_security_secrets.py             |   1 [32m+[m
+ backend/tests/test_team_api.py                     |  10 [32m+[m[31m-[m
+ backend/tests/test_team_service.py                 |  16 [32m+[m[31m-[m
+ payment-app/src/pages/PayPage.tsx                  |   6 [32m+[m[31m-[m
+ user-web/src/pages/earnings/index.tsx              |  14 [32m+[m[31m-[m
+ user-web/src/pages/sales/index.tsx                 |  25 [32m++[m[31m-[m
+ user-web/src/pages/team/index.tsx                  |  22 [32m++[m[31m-[m
+ user-web/src/pages/withdrawal/index.tsx            |   6 [32m+[m
+ user-web/src/services/team.ts                      |   2 [32m+[m
+ user-web/tsconfig.node.tsbuildinfo                 |   2 [32m+[m[31m-[m
+ user-web/tsconfig.tsbuildinfo                      |   2 [32m+[m[31m-[m
+ user-web/vite.config.d.ts                          |   2 [32m+[m[31m-[m
+ 40 files changed, 1138 insertions(+), 110 deletions(-)

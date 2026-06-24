@@ -65,8 +65,8 @@ class TestGetTeamTree:
         with pytest.raises(ValueError, match="不存在"):
             service.get_team_tree(9999, db_session)
 
-    def test_node_fields_no_email(self, db_session):
-        """验证节点包含所有必要字段且不含 email（PRD 隐私要求）"""
+    def test_node_fields_include_email(self, db_session):
+        """验证节点包含所有必要字段（含 email，PRD FR-9）"""
         agent = _make_user(db_session, "agent@example.com", "agent", nickname="Agent王")
         child = _make_user(db_session, "child@example.com", parent_id=agent.id, nickname="小C")
 
@@ -75,13 +75,14 @@ class TestGetTeamTree:
 
         child_node = result["root"]["children"][0]
         assert "user_id" in child_node
+        assert "email" in child_node
         assert "nickname" in child_node
         assert "role" in child_node
         assert "created_at" in child_node
         assert "direct_downline_count" in child_node
         assert "children" in child_node
-        # M2: 不应包含 email 字段
-        assert "email" not in child_node
+        # PRD FR-9: 应包含 email 字段
+        assert child_node["email"] == "child@example.com"
         assert child_node["nickname"] == "小C"
         assert child_node["role"] == "distributor"
 
@@ -148,8 +149,8 @@ class TestGetUpstreamChain:
         with pytest.raises(ValueError, match="不存在"):
             service.get_upstream_chain(9999, db_session)
 
-    def test_chain_node_no_email(self, db_session):
-        """M2: 上级链节点不含 email"""
+    def test_chain_node_include_email(self, db_session):
+        """PRD FR-10: 上级链节点含 email"""
         agent = _make_user(db_session, "agent@example.com", "agent")
         child = _make_user(db_session, "child@example.com", parent_id=agent.id)
 
@@ -158,7 +159,8 @@ class TestGetUpstreamChain:
 
         node = result["chain"][0]
         assert "user_id" in node
+        assert "email" in node
         assert "nickname" in node
         assert "role" in node
         assert "level" in node
-        assert "email" not in node
+        assert node["email"] == "agent@example.com"

@@ -52,8 +52,9 @@ class TestTeamAPI:
         assert "created_at" in child
         assert child["direct_downline_count"] == 0
         assert child["children"] == []
-        # M2: 不应返回 email
-        assert "email" not in child
+        # PRD FR-9: 应返回 email
+        assert "email" in child
+        assert child["email"] == "c1@example.com"
 
 
 class TestUpstreamAPI:
@@ -94,5 +95,6 @@ class TestUpstreamAPI:
         assert chain[0]["user_id"] == agent.id
         assert chain[0]["level"] == 1
         assert chain[0]["nickname"] == "Agent王"
-        # M2: 不应返回 email
-        assert "email" not in chain[0]
+        # PRD FR-10: 应返回 email
+        assert "email" in chain[0]
+        assert chain[0]["email"] == "agent@example.com"

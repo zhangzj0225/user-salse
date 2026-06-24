@@ -9,7 +9,7 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 # 防止恶意深度递归
-MAX_TEAM_DEPTH = 20
+MAX_TEAM_DEPTH = 100
 
 
 class TeamService:
@@ -81,9 +81,10 @@ class TeamService:
         return subtree_count, node
 
     def _make_node(self, user: User, direct_downline_count: int) -> dict:
-        """创建树节点（不含 email，仅返回 PRD 要求的昵称/角色/注册时间/下级数）。"""
+        """创建树节点（含 PRD 要求的邮箱/昵称/角色/注册时间/下级数）。"""
         return {
             "user_id": user.id,
+            "email": user.email,  # PRD FR-9: 展示邮箱
             "nickname": user.nickname,
             "role": user.role,
             "created_at": user.created_at,
@@ -118,6 +119,7 @@ class TeamService:
 
             chain.append({
                 "user_id": parent.id,
+                "email": parent.email,  # PRD FR-10: 展示邮箱
                 "nickname": parent.nickname,
                 "role": parent.role,
                 "level": level,

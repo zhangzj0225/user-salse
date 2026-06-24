@@ -3,6 +3,7 @@ import { request } from "./api";
 // ── 后端 TeamNode schema ──
 export interface TeamMember {
   user_id: number;
+  email: string | null;
   nickname: string | null;
   role: string;
   created_at: string;
@@ -13,6 +14,7 @@ export interface TeamMember {
 // ── 后端 UpstreamNode schema ──
 export interface UpstreamMember {
   user_id: number;
+  email: string | null;
   nickname: string | null;
   role: string;
   level: number;

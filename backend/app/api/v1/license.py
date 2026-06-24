@@ -36,6 +36,17 @@ def get_my_license(
     return license_obj
 
 
+@router.get("/users/me/licenses", response_model=dict)
+def get_my_licenses(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    service: LicenseService = Depends(get_license_service),
+):
+    """查看我的 License 列表。"""
+    licenses = service.get_user_licenses(current_user.id, db)
+    return {"data": [LicenseInfo.model_validate(l).model_dump() for l in licenses]}
+
+
 @router.post("/license/verify", response_model=LicenseVerifyResponse)
 def verify_license(
     request: LicenseVerifyRequest,
@@ -51,6 +62,19 @@ def verify_license(
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
     result = service.verify_license(code=request.code, db=db)
+    # 如果验证通过且传入了 business_user_id，自动激活
+    if result["valid"] and request.business_user_id:
+        service.activate_license(
+            code=request.code,
+            business_user_id=request.business_user_id,
+            business_user_info=request.business_user_info,
+            db=db,
+        )
+        return LicenseVerifyResponse(
+            valid=True,
+            status="已激活",
+            license_info=None,
+        )
     return LicenseVerifyResponse(
         valid=result["valid"],
         status=result["message"],

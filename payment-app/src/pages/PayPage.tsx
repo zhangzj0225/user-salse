@@ -7,7 +7,7 @@ import { paymentApi } from '../services/api';
 type PayStatus = 'idle' | 'pending' | 'success' | 'failed';
 
 /** redirect 白名单 — 仅允许已知业务域名 */
-const ALLOWED_REDIRECT_HOSTS = ['localhost', '127.0.0.1', 'sentiment.example.com'];
+const ALLOWED_REDIRECT_HOSTS = ['localhost', '127.0.0.1'];
 
 function isRedirectAllowed(url: string): boolean {
   try {
@@ -97,8 +97,8 @@ function PayPage() {
     const poll = async () => {
       try {
         const res = await paymentApi.getStatus(paymentId);
-        const data = res.data;
-        if (data.status === 'success') {
+        const data = res.data.data;
+        if (data.status === 'paid') {
           setStatus('success');
           setLicenseCode(data.license_code || '');
           stopTimers();

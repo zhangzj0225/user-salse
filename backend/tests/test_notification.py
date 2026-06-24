@@ -54,6 +54,7 @@ class TestNotificationService:
         notif = NotificationService.notify_subordinate_paid(
             parent_id=parent.id,
             child_email="child@example.com",
+            amount=888,
             db=db_session,
         )
         db_session.commit()

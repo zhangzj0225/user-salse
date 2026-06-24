@@ -107,7 +107,7 @@ class SaleService:
 
             # 7. 生成 License
             self._license_service.generate_for_payment(
-                user_id=customer.id,
+                user_id=None,  # FR-11: License 生成时不绑定用户
                 payment_id=payment.id,
                 target_role=SALE_TARGET_ROLE,
                 db=db,

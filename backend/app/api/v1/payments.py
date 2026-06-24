@@ -69,10 +69,9 @@ def list_payments_endpoint(
 def get_payment_status_endpoint(
     payment_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
     service: PaymentService = Depends(get_payment_service),
 ):
-    """查询支付状态（需登录）。"""
+    """查询支付状态（公开接口，支付页面无需登录）。"""
     try:
         result = service.get_payment_status(payment_id, db)
     except ValueError as e:
@@ -83,7 +82,13 @@ def get_payment_status_endpoint(
 
 
 def _verify_callback_signature(payment_id: int, payment_no: str, signature: str) -> bool:
-    """验证支付回调签名（HMAC-SHA256）。"""
+    """验证支付回调签名（HMAC-SHA256 内部 webhook 签名）。
+
+    TODO: 对接真实微信/支付宝支付网关时，需替换为官方签名验证：
+    - 微信支付 V3: RSA-SHA256 签名验证（使用微信平台公钥）
+    - 支付宝: RSA2 签名验证（使用支付宝公钥）
+    当前为内部 webhook 签名机制，适用于模拟支付或内部支付网关。
+    """
     import hmac
     payload = f"{payment_id}:{payment_no}"
     expected = hmac.new(

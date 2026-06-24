@@ -15,11 +15,13 @@ import { quotaApi } from "../../services/quota";
 import { authApi } from "../../services/auth";
 import { useAuthStore } from "../../stores/auth";
 import { useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function SalesPage() {
   const { message } = AntdApp.useApp();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
   const [form] = Form.useForm();
   const [sending, setSending] = useState(false);
   const [countdown, setCountdown] = useState(0);
@@ -99,12 +101,23 @@ export default function SalesPage() {
             {isLoading ? (
               <Skeleton active paragraph={{ rows: 1 }} />
             ) : (
-              <Statistic
-                title="剩余额度"
-                value={quotaData?.remaining ?? 0}
-                suffix="个"
-                valueStyle={{ color: "#3f8600" }}
-              />
+              <>
+                <Statistic
+                  title="剩余额度"
+                  value={quotaData?.remaining ?? 0}
+                  suffix="个"
+                  valueStyle={{ color: "#3f8600" }}
+                />
+                {(quotaData?.remaining ?? 0) === 0 && (
+                  <Button
+                    type="primary"
+                    style={{ marginTop: 12 }}
+                    onClick={() => navigate("/pay?amount=5000")}
+                  >
+                    申请补购
+                  </Button>
+                )}
+              </>
             )}
           </Card>
         </Col>

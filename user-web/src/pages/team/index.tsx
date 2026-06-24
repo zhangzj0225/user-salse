@@ -1,4 +1,4 @@
-import { Tabs, Table, Tag, Empty } from "antd";
+import { Tabs, Table, Tag, Empty, Statistic } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { teamApi } from "../../services/team";
 import type { TeamMember, UpstreamMember } from "../../services/team";
@@ -38,6 +38,12 @@ export default function TeamPage() {
       render: (text: string | null) => text || "-",
     },
     {
+      title: "邮箱",
+      dataIndex: "email",
+      key: "email",
+      render: (text: string | null) => text || "-",
+    },
+    {
       title: "角色",
       dataIndex: "role",
       key: "role",
@@ -69,6 +75,12 @@ export default function TeamPage() {
       render: (text: string | null) => text || "-",
     },
     {
+      title: "邮箱",
+      dataIndex: "email",
+      key: "email",
+      render: (text: string | null) => text || "-",
+    },
+    {
       title: "角色",
       dataIndex: "role",
       key: "role",
@@ -84,6 +96,11 @@ export default function TeamPage() {
   return (
     <div>
       <h2 style={{ marginBottom: 16 }}>我的团队</h2>
+      <Statistic
+        title="团队总人数"
+        value={downstreamData?.total_count ?? 0}
+        style={{ marginBottom: 16 }}
+      />
       <Tabs
         items={[
           {
@@ -95,6 +112,7 @@ export default function TeamPage() {
                 dataSource={downstreamData?.root?.children ?? []}
                 loading={downstreamLoading}
                 rowKey="user_id"
+                expandable={{ childrenColumnName: "children" }}
                 pagination={{ pageSize: 20, showSizeChanger: false }}
                 locale={{
                   emptyText: <Empty description="暂无下级成员" />,
@@ -113,7 +131,7 @@ export default function TeamPage() {
                 rowKey="user_id"
                 pagination={false}
                 locale={{
-                  emptyText: <Empty description="暂无上级信息" />,
+                  emptyText: <Empty description="无上级" />,
                 }}
               />
             ),

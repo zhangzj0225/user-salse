@@ -11,6 +11,8 @@ from app.core.constants import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 from app.core.database import get_db
 from app.core.security import get_current_admin
 from app.models.admin_user import AdminUser
+from app.models.commission_config import CommissionConfig
+from app.models.config_change_log import ConfigChangeLog
 from app.models.license import License
 from app.models.user import User
 from app.schemas.payment import PaymentApproveRequest, PaymentResponse
@@ -21,6 +23,10 @@ from app.schemas.ticket import (
 )
 from app.schemas.admin_user import UserDetail, UserListResponse
 from app.schemas.dashboard import DashboardStats
+from app.schemas.commission_config import (
+    CommissionConfigListResponse,
+    CommissionConfigUpdateRequest,
+)
 from app.schemas.system_config import (
     ConfigChangeLogListResponse,
     ConfigListResponse,
@@ -150,6 +156,78 @@ def list_config_change_logs_endpoint(
     return {"logs": logs}
 
 
+# ---- 佣金配置管理（Story 8.2）----
+
+@router.get("/commission-configs", response_model=CommissionConfigListResponse)
+def list_commission_configs_endpoint(
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """管理员查看佣金配置列表。"""
+    configs = (
+        db.query(CommissionConfig)
+        .order_by(CommissionConfig.role, CommissionConfig.scene)
+        .all()
+    )
+    return {
+        "configs": [
+            {
+                "id": c.id,
+                "role": c.role,
+                "scene": c.scene,
+                "reward_type": c.reward_type,
+                "reward_value": str(c.reward_value),
+            }
+            for c in configs
+        ]
+    }
+
+
+@router.put("/commission-configs/{config_id}", response_model=dict)
+def update_commission_config_endpoint(
+    config_id: int,
+    request: CommissionConfigUpdateRequest,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """管理员修改佣金配置 reward_value（行锁 + ConfigChangeLog）。"""
+    config = (
+        db.query(CommissionConfig)
+        .filter(CommissionConfig.id == config_id)
+        .with_for_update()
+        .first()
+    )
+    if not config:
+        raise HTTPException(status_code=404, detail="佣金配置不存在")
+
+    old_value = str(config.reward_value)
+    config.reward_value = request.reward_value
+
+    log = ConfigChangeLog(
+        admin_id=current_admin.id,
+        config_key=f"commission_{config_id}",
+        old_value=old_value,
+        new_value=request.reward_value,
+    )
+    db.add(log)
+    db.commit()
+
+    logger.info(
+        "Commission config updated: config_id=%d role=%s scene=%s old=%s new=%s admin_id=%d",
+        config.id, config.role, config.scene, old_value, request.reward_value, current_admin.id,
+    )
+
+    return {
+        "data": {
+            "id": config.id,
+            "role": config.role,
+            "scene": config.scene,
+            "reward_type": config.reward_type,
+            "reward_value": str(config.reward_value),
+        }
+    }
+
+
 # ---- 运营数据看板（Story 4.3）----
 
 @router.get("/dashboard", response_model=DashboardStats)
@@ -270,6 +348,12 @@ def create_seed_user_endpoint(
 
     db.commit()
     db.refresh(user)
+
+    from app.services.notification_service import NotificationService
+    NotificationService.notify_seed_user_created(
+        user_id=user.id, email=user.email, role=user.role, db=db,
+    )
+    db.commit()
 
     logger.info(
         "Seed user created: user_id=%d email=%s role=%s",

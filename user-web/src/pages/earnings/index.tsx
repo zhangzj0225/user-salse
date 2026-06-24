@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Row, Col, Card, Table, Select, Tag } from "antd";
+import { BookOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { earningsApi } from "../../services/earnings";
 import type { EarningsRecord } from "../../services/earnings";
@@ -18,8 +19,6 @@ const typeLabelMap: Record<string, string> = {
   first_reward: "首次奖励",
   followup_reward: "后续收益",
   team_bonus: "长期奖励",
-  recommend: "推荐返佣",
-  sale_commission: "销售佣金",
 };
 
 const PAGE_SIZE = 20;
@@ -90,11 +89,14 @@ export default function EarningsPage() {
         <Col span={8}>
           <Card loading={isLoading}>
             <Card.Meta
-              title={<span style={{ fontSize: 14 }}>累计佣金（记账余额）</span>}
+              title={<span style={{ fontSize: 14 }}><BookOutlined /> 累计佣金（记账余额）</span>}
               description={
-                <span style={{ fontSize: 24, color: "#1677ff" }}>
-                  ¥{Number(summary?.pending_balance ?? 0).toFixed(2)}
-                </span>
+                <>
+                  <span style={{ fontSize: 24, color: "#1677ff" }}>
+                    ¥{Number(summary?.pending_balance ?? 0).toFixed(2)}
+                  </span>
+                  <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>此为记账金额，需提交工单提现</div>
+                </>
               }
             />
           </Card>

@@ -24,6 +24,8 @@ def send_email_code(request: SendEmailCodeRequest, db: Session = Depends(get_db)
     auth_service = get_auth_service()
     try:
         code = auth_service.send_email_code(request.email, request.scene, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="Email service not available")
     result = {"message": "验证码已发送"}
@@ -34,7 +36,7 @@ def send_email_code(request: SendEmailCodeRequest, db: Session = Depends(get_db)
 
 @router.post("/login", response_model=dict)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """Cold-start / admin seeding login. Creates root-level user with no parent_id."""
+    """Email verification code login for existing users only."""
     auth_service = get_auth_service()
     try:
         user, token = auth_service.authenticate(request.email, request.code, db)

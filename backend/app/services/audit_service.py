@@ -19,6 +19,7 @@ class AuditService:
         new_value: dict | None,
         business_id: str | None,
         db: Session,
+        operator_id: int | None = None,
     ) -> AuditLog:
         entry = AuditLog(
             action=action,
@@ -28,6 +29,7 @@ class AuditService:
             old_value=old_value,
             new_value=new_value,
             business_id=business_id,
+            operator_id=operator_id,
         )
         db.add(entry)
         db.flush()

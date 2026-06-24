@@ -31,11 +31,12 @@ def calculate_balance_summary(user_id: int, db: Session) -> tuple[Decimal, Decim
       - total_commission: 记账余额（所有佣金总和，毛额）
         ⚠️ D4: 内部变量名 total_commission，API 响应字段名为 pending_balance
         （见 EarningsSummary schema）。两者是同一个值，仅命名不同。
-      - withdrawn_total:  已提现（paid 工单总和）
-      - available_balance: 可用余额 = total_commission - pending 工单 - paid 工单
-        （paid 工单即已提现，必须扣减，否则 approve 后余额回升导致双重支付）
+      - withdrawn_total:  已提现（paid 工单总和），仅用于展示，不参与可用余额计算
+      - available_balance: 可用余额 = total_commission - pending 工单（已冻结提现金额）
+        PRD 定义：可用余额 = 记账余额 - 已冻结提现金额。
+        已提现（paid）的部分不应再扣减，因为记账余额是毛额，已提现金额仅作展示。
 
-    可用余额等价于: total_commission - sum(status IN ('pending','paid') 工单)
+    可用余额等价于: total_commission - sum(status = 'pending' 工单)
     """
     total_result = db.query(
         func.coalesce(func.sum(CommissionRecord.amount), 0)

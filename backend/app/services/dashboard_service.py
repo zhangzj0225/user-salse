@@ -39,10 +39,13 @@ class DashboardService:
         ).scalar()
         today_payment_total = str(Decimal(today_payment_result))
 
-        # License 统计
-        license_generated_count = db.query(License).count()
+        # License 统计 — 今日数据
+        license_generated_count = db.query(License).filter(
+            func.date(License.created_at) == today_str
+        ).count()
         license_activated_count = db.query(License).filter(
-            License.status == "activated"
+            License.status == "activated",
+            func.date(License.activated_at) == today_str,
         ).count()
 
         # 工单统计
