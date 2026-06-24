@@ -28,8 +28,6 @@ def send_email_code(request: SendEmailCodeRequest, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail=str(e))
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="Email service not available")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     result = {"message": "验证码已发送"}
     if settings.AUTH_MODE == "mock":
         result["code"] = code

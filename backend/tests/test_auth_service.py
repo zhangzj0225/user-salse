@@ -7,29 +7,18 @@ import pytest
 from app.models.email_verification_code import EmailVerificationCode
 from app.models.user import User
 from app.services.auth_service import MockAuthService, EmailAuthService, get_auth_service
+
+
 def _make_user(db_session, email="test@example.com", role="distributor"):
-    """PRD v2: 预创建用户"""
-    from app.models.user import User
+    """Create a test user in the DB."""
     u = User(email=email, role=role, status="active")
     db_session.add(u)
-    db_session.commit()
-    return u
-
-
-
-def _make_user(db, email, role="distributor"):
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        return existing
-    u = User(email=email, role=role, status="active")
-    db.add(u)
-    db.flush()
+    db_session.flush()
     return u
 
 
 class TestMockAuthServiceSendEmailCode:
     def test_creates_email_record_in_db(self, db_session):
-        _make_user(db_session, "test@example.com")
         _make_user(db_session)
         service = MockAuthService()
         code = service.send_email_code("test@example.com", "login", db_session)
@@ -43,14 +32,12 @@ class TestMockAuthServiceSendEmailCode:
         assert records[0].verified is False
 
     def test_returns_mock_code(self, db_session):
-        _make_user(db_session, "test@example.com")
         _make_user(db_session)
         service = MockAuthService()
         code = service.send_email_code("test@example.com", "login", db_session)
         assert code == "123456"
 
     def test_sets_expiry_5_minutes_in_future(self, db_session):
-        _make_user(db_session, "test@example.com")
         _make_user(db_session)
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
@@ -76,7 +63,6 @@ class TestMockAuthServiceSendEmailCode:
 
 class TestMockAuthServiceAuthenticate:
     def test_returns_user_and_token_on_valid_code(self, db_session):
-        _make_user(db_session, "test@example.com")
         _make_user(db_session)
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
@@ -87,21 +73,13 @@ class TestMockAuthServiceAuthenticate:
         assert isinstance(token, str)
         assert len(token) > 0
 
-    def test_creates_new_user_on_first_login(self, db_session):
-        _make_user(db_session, "test@example.com")
-        service = MockAuthService()
-        service.send_email_code("test@example.com", "login", db_session)
-        user, _ = service.authenticate("test@example.com", "123456", db_session)
-        assert user.email == "test@example.com"
-        assert user.role == "distributor"
-        assert user.status == "active"
-        assert user.parent_id is None
-    def test_returns_existing_user_on_second_login(self, db_session):
     def test_rejects_nonexistent_user(self, db_session):
-        """PRD v2: 不存在的用户登录时抛出 ValueError"""
-        # 不存在的用户无法发送验证码
+        """PRD v2: 不存在的用户发送验证码时抛出 ValueError"""
+        service = MockAuthService()
         with pytest.raises(ValueError, match="用户不存在"):
             service.send_email_code("noone@example.com", "login", db_session)
+
+    def test_returns_existing_user_on_second_login(self, db_session):
         _make_user(db_session)
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
@@ -112,7 +90,6 @@ class TestMockAuthServiceAuthenticate:
         assert second_user.id == first_user.id
 
     def test_marks_email_record_verified(self, db_session):
-        _make_user(db_session, "test@example.com")
         _make_user(db_session)
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
@@ -124,7 +101,6 @@ class TestMockAuthServiceAuthenticate:
         assert record.verified is True
 
     def test_raises_value_error_on_wrong_code(self, db_session):
-        _make_user(db_session, "test@example.com")
         _make_user(db_session)
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
@@ -154,7 +130,6 @@ class TestMockAuthServiceAuthenticate:
             service.authenticate("test@example.com", "123456", db_session)
 
     def test_jwt_token_has_correct_type(self, db_session):
-        _make_user(db_session, "test@example.com")
         _make_user(db_session)
         service = MockAuthService()
         service.send_email_code("test@example.com", "login", db_session)
@@ -174,7 +149,6 @@ class TestEmailAuthService:
 
     def test_send_email_code_writes_db_record(self, db_session, monkeypatch):
         """验证码写入 DB（SMTP 发送被 mock 避免真实网络调用）。"""
-        _make_user(db_session, "test@example.com")
         _make_user(db_session)
         service = EmailAuthService()
 
@@ -195,7 +169,6 @@ class TestEmailAuthService:
         assert record.code == code
 
     def test_authenticate_verifies_code(self, db_session, monkeypatch):
-        """authenticate 正确校验验证码并创建用户。"""
         """authenticate 正确校验验证码并返回用户。"""
         _make_user(db_session, "auth_test@example.com")
         service = EmailAuthService()

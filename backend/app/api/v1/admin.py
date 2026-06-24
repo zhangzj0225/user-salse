@@ -158,32 +158,6 @@ def list_config_change_logs_endpoint(
     return {"logs": logs}
 
 
-<<<<<<< HEAD
-# ---- 佣金配置管理（Story 8.2）----
-
-@router.get("/commission-configs", response_model=CommissionConfigListResponse)
-def list_commission_configs_endpoint(
-    db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin),
-):
-    """管理员查看佣金配置列表。"""
-    configs = (
-        db.query(CommissionConfig)
-        .order_by(CommissionConfig.role, CommissionConfig.scene)
-        .all()
-    )
-    return {
-        "configs": [
-            {
-                "id": c.id,
-                "role": c.role,
-                "scene": c.scene,
-                "reward_type": c.reward_type,
-                "reward_value": str(c.reward_value),
-            }
-            for c in configs
-        ]
-=======
 # ---- 佣金配置管理（FR-13）----
 
 _VALID_COMMISSION_ROLES = ("distributor", "agent")
@@ -261,7 +235,6 @@ def get_commission_config_endpoint(
             "reward_value": float(config.reward_value),
             "updated_at": config.updated_at.isoformat() if config.updated_at else None,
         }
->>>>>>> 9991855 (fix: PRD v2 E2E 审计修复 + 安全加固 + 新增功能 + 测试适配)
     }
 
 
@@ -272,11 +245,7 @@ def update_commission_config_endpoint(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin),
 ):
-<<<<<<< HEAD
-    """管理员修改佣金配置 reward_value（行锁 + ConfigChangeLog）。"""
-=======
     """管理员修改佣金配置。role 和 scene 不可修改（唯一标识），变更自动记入 ConfigChangeLog。"""
->>>>>>> 9991855 (fix: PRD v2 E2E 审计修复 + 安全加固 + 新增功能 + 测试适配)
     config = (
         db.query(CommissionConfig)
         .filter(CommissionConfig.id == config_id)
@@ -286,23 +255,6 @@ def update_commission_config_endpoint(
     if not config:
         raise HTTPException(status_code=404, detail="佣金配置不存在")
 
-<<<<<<< HEAD
-    old_value = str(config.reward_value)
-    config.reward_value = request.reward_value
-
-    log = ConfigChangeLog(
-        admin_id=current_admin.id,
-        config_key=f"commission_{config_id}",
-        old_value=old_value,
-        new_value=request.reward_value,
-    )
-    db.add(log)
-    db.commit()
-
-    logger.info(
-        "Commission config updated: config_id=%d role=%s scene=%s old=%s new=%s admin_id=%d",
-        config.id, config.role, config.scene, old_value, request.reward_value, current_admin.id,
-=======
     # 记录旧值
     old_reward_type = config.reward_type
     old_reward_value = float(config.reward_value)
@@ -329,7 +281,6 @@ def update_commission_config_endpoint(
     logger.info(
         "Commission config updated: id=%d role=%s scene=%s old=(%s) new=(%s) admin_id=%d",
         config_id, config.role, config.scene, old_value_str, new_value_str, current_admin.id,
->>>>>>> 9991855 (fix: PRD v2 E2E 审计修复 + 安全加固 + 新增功能 + 测试适配)
     )
 
     return {
@@ -338,12 +289,8 @@ def update_commission_config_endpoint(
             "role": config.role,
             "scene": config.scene,
             "reward_type": config.reward_type,
-<<<<<<< HEAD
-            "reward_value": str(config.reward_value),
-=======
             "reward_value": float(config.reward_value),
             "updated_at": config.updated_at.isoformat() if config.updated_at else None,
->>>>>>> 9991855 (fix: PRD v2 E2E 审计修复 + 安全加固 + 新增功能 + 测试适配)
         }
     }
 

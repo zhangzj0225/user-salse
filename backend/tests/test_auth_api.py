@@ -14,10 +14,6 @@ def _make_user(db, email="test@example.com", role="distributor"):
 class TestSendEmailCode:
     def test_returns_200_with_code_in_mock_mode(self, client, db_session):
         _make_user(db_session, "test@example.com")
-        # PRD v2: 需预创建用户才能发送登录验证码
-        from app.models.user import User
-        db_session.add(User(email="test@example.com", role="distributor", status="active"))
-        db_session.commit()
         response = client.post("/api/v1/auth/send-email-code", json={"email": "test@example.com"})
         assert response.status_code == 200
         data = response.json()
@@ -29,13 +25,12 @@ class TestSendEmailCode:
         response = client.post("/api/v1/auth/send-email-code", json={"email": "nobody@example.com"})
         assert response.status_code == 400
         assert "不存在" in response.json()["detail"]
+
     def test_returns_200_for_sale_verify_scene(self, client):
         """sale_verify scene does not check user existence."""
-        response = client.post("/api/v1/auth/send-email-code", json={"email": "newcustomer@example.com", "scene": "sale_verify"})
+        response = client.post("/api/v1/auth/send-email-code",
+                               json={"email": "newcustomer@example.com", "scene": "sale_verify"})
         assert response.status_code == 200
-    def test_returns_400_when_user_not_found(self, client, db_session):
-        """PRD v2: 不存在的用户发送验证码返回错误"""
-        response = client.post("/api/v1/auth/send-email-code", json={"email": "noone@example.com"})
 
     def test_returns_422_on_invalid_email(self, client):
         response = client.post("/api/v1/auth/send-email-code", json={"email": "not-an-email"})
@@ -47,19 +42,12 @@ class TestSendEmailCode:
 
 
 class TestLogin:
-    def _make_and_send(self, client, db_session, email="test@example.com"):
-        """PRD v2: 预创建用户后发送验证码"""
-        from app.models.user import User
-        u = db_session.query(User).filter(User.email == email).first()
-        if not u:
-            db_session.add(User(email=email, role="distributor", status="active"))
-            db_session.commit()
+    def _send_code(self, client, email="test@example.com"):
         client.post("/api/v1/auth/send-email-code", json={"email": email})
 
     def test_returns_200_with_token_and_user(self, client, db_session):
         _make_user(db_session, "test@example.com")
         self._send_code(client)
-        self._make_and_send(client, db_session)
         response = client.post("/api/v1/auth/login", json={"email": "test@example.com", "code": "123456"})
         assert response.status_code == 200
         data = response.json()
@@ -69,7 +57,6 @@ class TestLogin:
     def test_returns_400_on_wrong_code(self, client, db_session):
         _make_user(db_session, "test@example.com")
         self._send_code(client)
-        self._make_and_send(client, db_session)
         response = client.post("/api/v1/auth/login", json={"email": "test@example.com", "code": "999999"})
         assert response.status_code == 400
 
@@ -77,24 +64,23 @@ class TestLogin:
         _make_user(db_session, "test@example.com")
         response = client.post("/api/v1/auth/login", json={"email": "test@example.com", "code": "123456"})
         assert response.status_code == 400
+
     def test_returns_400_on_nonexistent_user(self, client):
         """FR-1: login rejects non-existent users."""
         response = client.post("/api/v1/auth/login", json={"email": "ghost@example.com", "code": "123456"})
+        assert response.status_code == 400
+
     def test_returns_422_on_invalid_body(self, client):
         response = client.post("/api/v1/auth/login", json={"email": "test@example.com"})
         assert response.status_code == 422
+
     def test_returns_same_user_on_second_login(self, client, db_session):
+        _make_user(db_session, "test@example.com")
         self._send_code(client)
-        # PRD v2: 用户不存在时，send-email-code 返回 400
-    def test_returns_422_on_invalid_body(self, client, db_session):
-    def test_rejects_nonexistent_user(self, client):
-        """PRD v2: 不存在的用户无法发送验证码 → 400"""
-        response = client.post("/api/v1/auth/send-email-code", json={"email": "new@example.com"})
-        self._make_and_send(client, db_session)
         first = client.post("/api/v1/auth/login", json={"email": "test@example.com", "code": "123456"})
         first_id = first.json()["data"]["user"]["id"]
 
-        self._make_and_send(client, db_session)
+        self._send_code(client)
         second = client.post("/api/v1/auth/login", json={"email": "test@example.com", "code": "123456"})
         second_id = second.json()["data"]["user"]["id"]
         assert first_id == second_id
@@ -103,12 +89,6 @@ class TestLogin:
 class TestUsersMe:
     def _login(self, client, db_session, email="test@example.com"):
         _make_user(db_session, email)
-        # PRD v2: 预创建用户
-        from app.models.user import User
-        u = db_session.query(User).filter(User.email == email).first()
-        if not u:
-            db_session.add(User(email=email, role="distributor", status="active"))
-            db_session.commit()
         client.post("/api/v1/auth/send-email-code", json={"email": email})
         resp = client.post("/api/v1/auth/login", json={"email": email, "code": "123456"})
         return resp.json()["data"]["token"]
