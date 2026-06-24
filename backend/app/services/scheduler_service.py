@@ -11,7 +11,6 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import Session
 
-from app.core.constants import get_settlement_cycle
 from app.core.database import get_session_local
 from app.models.system_config import SystemConfig
 from app.models.user import User
@@ -24,20 +23,6 @@ _scheduler: BackgroundScheduler | None = None
 # D-1: misfire_grace_time=86400（24h），进程在月1号不在线恢复后自动补跑。
 # 若进程离线超过24h，该月结算被跳过——需运维感知 monthly_settlement_skipped 日志。
 MISFIRE_GRACE_SECONDS = 86400
-
-
-def _get_cron_trigger():
-    db = get_session_local()()
-    try:
-        cycle = get_settlement_cycle(db)
-        if cycle == "weekly":
-            return CronTrigger(day_of_week="mon", hour=2, minute=0, timezone="UTC")
-        elif cycle == "daily":
-            return CronTrigger(hour=2, minute=0, timezone="UTC")
-        else:
-            return CronTrigger(day=1, hour=2, minute=0, timezone="UTC")
-    finally:
-        db.close()
 
 
 def run_settlement() -> None:

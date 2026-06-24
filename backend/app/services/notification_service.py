@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.notification_log import NotificationLog
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,23 @@ class NotificationService:
             "Notification created: user_id=%d event_type=%s",
             user_id, event_type,
         )
+
+        # Best-effort email delivery — must not break the DB write
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user and user.email:
+                NotificationService._send_notification_email(
+                    to_email=user.email,
+                    event_type=event_type,
+                    content=content,
+                )
+        except Exception:
+            logger.warning(
+                "Failed to send notification email: user_id=%d event_type=%s",
+                user_id, event_type,
+                exc_info=True,
+            )
+
         return notification
 
     @staticmethod

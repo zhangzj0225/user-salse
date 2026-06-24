@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.constants import ROLE_LEVEL
 from app.services.system_config_service import get_dynamic_payment_configs
 from app.models.payment import Payment
+from app.models.referral_relationship import ReferralRelationship
 from app.models.user import User
 from app.services.audit_service import AuditService
 from app.services.commission_service import CommissionEngine
@@ -139,18 +140,29 @@ class PaymentService:
         engine = CommissionEngine(db)
         records = engine.process_payment(payment_id=payment.id)
 
-        # 888 支付也通知推荐人（如有推荐码且有佣金记录）
-        if payment.referral_code and records:
+        # 推荐关系记录 + 通知推荐人
+        if payment.referral_code:
             from app.services.referral_service import ReferralService
             result = ReferralService().validate_referral_code(payment.referral_code, db)
             if result["valid"]:
-                from app.services.notification_service import NotificationService
-                NotificationService.notify_subordinate_paid(
-                    parent_id=result["user_id"],
-                    child_email=payment.email,
-                    amount=int(payment.amount),
-                    db=db,
+                referrer_id = result["user_id"]
+                # 创建推荐关系记录（888 支付无下级用户）
+                rel = ReferralRelationship(
+                    parent_user_id=referrer_id,
+                    child_user_id=None,
+                    referral_code=payment.referral_code,
+                    payment_id=payment.id,
                 )
+                db.add(rel)
+                # 通知推荐人（仅当有佣金记录时）
+                if records:
+                    from app.services.notification_service import NotificationService
+                    NotificationService.notify_subordinate_paid(
+                        parent_id=referrer_id,
+                        child_email=payment.email,
+                        amount=int(payment.amount),
+                        db=db,
+                    )
 
     def _handle_role_payment(
         self, payment: Payment, db: Session, role: str
@@ -227,6 +239,16 @@ class PaymentService:
                 amount=int(payment.amount),
                 db=db,
             )
+
+        # 记录推荐关系（不可变追溯）
+        if referrer_id:
+            rel = ReferralRelationship(
+                parent_user_id=referrer_id,
+                child_user_id=user.id,
+                referral_code=payment.referral_code,
+                payment_id=payment.id,
+            )
+            db.add(rel)
 
     def _send_license_email(self, to_email: str, license_code: str) -> None:
         """通过 SMTP 发送 License 码邮件。"""

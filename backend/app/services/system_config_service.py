@@ -19,6 +19,7 @@ DEFAULT_CONFIGS = {
     "quota_for_distributor": ("11", "经销商可售额度", "int"),
     "min_withdrawal_amount": ("100", "最低提现金额", "decimal"),
     "settlement_cycle": ("monthly", "结算周期(monthly/weekly/daily)", "string"),
+    "settlement_cycle_days": ("30", "结算周期天数", "int"),
     "followup_reward_amount": ("133.2", "后续收益金额", "decimal"),
 }
 
