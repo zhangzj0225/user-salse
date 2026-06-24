@@ -14,7 +14,7 @@ from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
-from app.core.constants import VALID_PAYMENT_AMOUNTS, ROLE_LEVEL
+from app.core.constants import ROLE_LEVEL
 
 
 def record_commission(
@@ -379,8 +379,10 @@ class CommissionEngine:
             logger.warning("非法支付金额类型: amount=%r, 跳过佣金记账", amount)
             return records
 
-        # SF-1: 校验金额合法性
-        if amount not in VALID_PAYMENT_AMOUNTS:
+        # SF-1: 校验金额合法性（S5: 从 SystemConfig 动态读取，fallback 到 constants.py）
+        from app.services.system_config_service import get_dynamic_payment_configs
+        configs = get_dynamic_payment_configs(self.db)
+        if amount not in configs["valid_amounts"]:
             logger.warning("非法支付金额: amount=%d, 跳过佣金记账", amount)
             return records
 

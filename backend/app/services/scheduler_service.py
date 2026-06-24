@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import Session
 
 from app.core.constants import get_settlement_cycle
 from app.core.database import get_session_local
+from app.models.system_config import SystemConfig
 from app.models.user import User
 from app.services.commission_service import CommissionEngine
 
@@ -97,7 +99,12 @@ def run_settlement() -> None:
 
 
 def start_scheduler() -> None:
-    """启动定时调度器。每月1号 02:00 UTC 执行结算。
+    """启动定时调度器。
+
+    S6: 从 SystemConfig 读取 settlement_cycle_days，动态选择触发策略：
+    - 30 天（默认）：每月1号 02:00 UTC CronTrigger（月结）
+    - 1 天：每天 IntervalTrigger（按天）
+    - 其他天数（如 7）：按间隔 days=settlement_cycle_days 的 IntervalTrigger
 
     多 worker 注意：本调度器依赖 APScheduler 进程内 BackgroundScheduler，
     未配置分布式锁。多 worker 部署时每 worker 各自启动调度器，同时触发
@@ -110,11 +117,73 @@ def start_scheduler() -> None:
         logger.warning("Scheduler already running")
         return
 
+    # S6: 从 SystemConfig 读取结算周期，fallback 到默认值 30
+    cycle_days = 30  # 默认月结
+    try:
+        session_factory = get_session_local()
+        db = session_factory()
+        try:
+            config = (
+                db.query(SystemConfig)
+                .filter(SystemConfig.config_key == "settlement_cycle_days")
+                .first()
+            )
+            if config and config.config_value is not None:
+                try:
+                    cycle_days = int(config.config_value)
+                    if cycle_days <= 0:
+                        logger.warning(
+                            "SystemConfig settlement_cycle_days=%d 无效 (<=0)，"
+                            "fallback 到默认值 30 天",
+                            cycle_days,
+                        )
+                        cycle_days = 30
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "SystemConfig settlement_cycle_days 值 '%s' 无法转为整数，"
+                        "fallback 到默认值 30 天",
+                        config.config_value,
+                    )
+            else:
+                logger.info(
+                    "SystemConfig 未配置 settlement_cycle_days，"
+                    "使用默认值 30 天（月结）"
+                )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(
+            "无法读取 SystemConfig settlement_cycle_days (%s)，"
+            "fallback 到默认值 30 天",
+            e,
+        )
+
+    # S6: 根据 cycle_days 选择触发策略
+    if cycle_days == 30:
+        trigger = CronTrigger(day=1, hour=2, minute=0, timezone="UTC")
+        logger.info(
+            "Scheduler: using monthly CronTrigger (day=1 02:00 UTC) "
+            "per settlement_cycle_days=%d",
+            cycle_days,
+        )
+    elif cycle_days == 1:
+        trigger = IntervalTrigger(days=1)
+        logger.info(
+            "Scheduler: using daily IntervalTrigger per settlement_cycle_days=%d",
+            cycle_days,
+        )
+    else:
+        trigger = IntervalTrigger(days=cycle_days)
+        logger.info(
+            "Scheduler: using IntervalTrigger(days=%d) per settlement_cycle_days=%d",
+            cycle_days, cycle_days,
+        )
+
     # D-3: max_instances=1 防同进程内重复执行
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
         run_settlement,
-        trigger=_get_cron_trigger(),
+        trigger,
         id="long_term_reward_settlement",
         replace_existing=True,
         misfire_grace_time=MISFIRE_GRACE_SECONDS,  # D-1: 宕机恢复后离线<24h自动补跑
@@ -122,8 +191,9 @@ def start_scheduler() -> None:
     )
     _scheduler.start()
     logger.info(
-        "Scheduler started: settlement runs on 1st of each month at 02:00 UTC "
-        "(misfire_grace=%ds, max_instances=1)", MISFIRE_GRACE_SECONDS,
+        "Scheduler started: settlement_cycle_days=%d (misfire_grace=%ds, max_instances=1) "
+        "— 若需变更周期，请修改 SystemConfig 并重启调度器",
+        cycle_days, MISFIRE_GRACE_SECONDS,
     )
 
 

@@ -97,7 +97,7 @@ function PayPage() {
     const poll = async () => {
       try {
         const res = await paymentApi.getStatus(paymentId);
-        const data = res.data.data;
+        const data = res.data;
         if (data.status === 'paid') {
           setStatus('success');
           setLicenseCode(data.license_code || '');

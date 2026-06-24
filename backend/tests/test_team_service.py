@@ -67,6 +67,8 @@ class TestGetTeamTree:
 
     def test_node_fields_include_email(self, db_session):
         """验证节点包含所有必要字段（含 email，PRD FR-9）"""
+    def test_node_fields_with_email(self, db_session):
+        """PRD v2 FR-9: 节点包含 email + nickname + 角色/注册时间/下级数"""
         agent = _make_user(db_session, "agent@example.com", "agent", nickname="Agent王")
         child = _make_user(db_session, "child@example.com", parent_id=agent.id, nickname="小C")
 
@@ -85,6 +87,7 @@ class TestGetTeamTree:
         assert child_node["email"] == "child@example.com"
         assert child_node["nickname"] == "小C"
         assert child_node["role"] == "distributor"
+        assert child_node["user_id"] == child.id
 
     def test_total_count_consistent_with_tree(self, db_session):
         """M1: total_count 与树中实际节点数一致"""
@@ -151,6 +154,8 @@ class TestGetUpstreamChain:
 
     def test_chain_node_include_email(self, db_session):
         """PRD FR-10: 上级链节点含 email"""
+    def test_chain_node_with_email(self, db_session):
+        """PRD v2 FR-10: 上级链节点含 email"""
         agent = _make_user(db_session, "agent@example.com", "agent")
         child = _make_user(db_session, "child@example.com", parent_id=agent.id)
 
@@ -164,3 +169,6 @@ class TestGetUpstreamChain:
         assert "role" in node
         assert "level" in node
         assert node["email"] == "agent@example.com"
+        assert node["user_id"] == agent.id
+        assert node["role"] == "agent"
+        assert node["level"] == 1

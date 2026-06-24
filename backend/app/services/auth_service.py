@@ -56,8 +56,10 @@ class MockAuthService(AuthService):
     def send_email_code(self, email: str, scene: str, db: Session) -> str:
         # M1: 邮箱统一小写化
         email = email.strip().lower()
+        # PRD v2 FR-1: 仅已存在用户可登录，不存在则提示"用户不存在"
         if scene == "login":
-            if not db.query(User).filter(User.email == email).first():
+            user = db.query(User).filter(User.email == email).first()
+            if not user:
                 raise ValueError("用户不存在")
         code = self.MOCK_CODE
         record = EmailVerificationCode(
@@ -76,6 +78,8 @@ class MockAuthService(AuthService):
         record = _verify_email_code(db, email, "login", code)
         record.verified = True
 
+        # PRD v2 FR-1: 登录仅认证已存在用户，不创建新用户。
+        # 用户创建的唯一路径：(1) 超管创建种子用户 (2) 在线支付 5000/10000。
         user = db.query(User).filter(User.email == email).first()
         if not user:
             raise ValueError("用户不存在")
@@ -140,8 +144,10 @@ class EmailAuthService(AuthService):
         # M1: 邮箱统一小写化
         email = email.strip().lower()
 
+        # PRD v2 FR-1: 仅已存在用户可登录，不存在则提示"用户不存在"
         if scene == "login":
-            if not db.query(User).filter(User.email == email).first():
+            user = db.query(User).filter(User.email == email).first()
+            if not user:
                 raise ValueError("用户不存在")
 
         # 生成 6 位随机数字验证码
@@ -175,6 +181,7 @@ class EmailAuthService(AuthService):
         record = _verify_email_code(db, email, "login", code)
         record.verified = True
 
+        # PRD v2 FR-1: 登录仅认证已存在用户，不创建新用户。
         user = db.query(User).filter(User.email == email).first()
         if not user:
             raise ValueError("用户不存在")

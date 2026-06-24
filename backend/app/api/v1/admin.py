@@ -1,6 +1,7 @@
 """管理员 API 端点。"""
 
 import logging
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,6 +15,7 @@ from app.models.admin_user import AdminUser
 from app.models.commission_config import CommissionConfig
 from app.models.config_change_log import ConfigChangeLog
 from app.models.license import License
+from app.models.system_config import SystemConfig
 from app.models.user import User
 from app.schemas.payment import PaymentApproveRequest, PaymentResponse
 from app.schemas.ticket import (
@@ -156,6 +158,7 @@ def list_config_change_logs_endpoint(
     return {"logs": logs}
 
 
+<<<<<<< HEAD
 # ---- 佣金配置管理（Story 8.2）----
 
 @router.get("/commission-configs", response_model=CommissionConfigListResponse)
@@ -180,6 +183,85 @@ def list_commission_configs_endpoint(
             }
             for c in configs
         ]
+=======
+# ---- 佣金配置管理（FR-13）----
+
+_VALID_COMMISSION_ROLES = ("distributor", "agent")
+_VALID_REWARD_TYPES = ("fixed", "percentage")
+
+
+class CommissionConfigUpdateRequest(BaseModel):
+    """修改佣金配置请求。"""
+
+    reward_value: Decimal = Field(..., gt=0, description="奖励金额/比例")
+    reward_type: Optional[str] = Field(None, pattern=r"^(fixed|percentage)$", description="奖励类型，不传则保持不变")
+
+
+@router.get("/commission-configs", response_model=dict)
+def list_commission_configs_endpoint(
+    role: Optional[str] = Query(None, description="筛选角色: distributor/agent"),
+    scene: Optional[str] = Query(None, description="筛选场景"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """管理员查看佣金配置列表，支持角色和场景筛选，按 role + scene 排序。"""
+    if role is not None and role not in _VALID_COMMISSION_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的角色参数，允许值: {_VALID_COMMISSION_ROLES}",
+        )
+
+    query = db.query(CommissionConfig)
+    if role:
+        query = query.filter(CommissionConfig.role == role)
+    if scene:
+        query = query.filter(CommissionConfig.scene == scene)
+
+    total = query.count()
+    configs = (
+        query.order_by(CommissionConfig.role, CommissionConfig.scene)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    result = [
+        {
+            "id": c.id,
+            "role": c.role,
+            "scene": c.scene,
+            "reward_type": c.reward_type,
+            "reward_value": float(c.reward_value),
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        }
+        for c in configs
+    ]
+
+    return {"data": result, "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/commission-configs/{config_id}", response_model=dict)
+def get_commission_config_endpoint(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """管理员查看单条佣金配置详情。"""
+    config = db.query(CommissionConfig).filter(CommissionConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="佣金配置不存在")
+    return {
+        "data": {
+            "id": config.id,
+            "role": config.role,
+            "scene": config.scene,
+            "reward_type": config.reward_type,
+            "reward_value": float(config.reward_value),
+            "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+        }
+>>>>>>> 9991855 (fix: PRD v2 E2E 审计修复 + 安全加固 + 新增功能 + 测试适配)
     }
 
 
@@ -190,7 +272,11 @@ def update_commission_config_endpoint(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin),
 ):
+<<<<<<< HEAD
     """管理员修改佣金配置 reward_value（行锁 + ConfigChangeLog）。"""
+=======
+    """管理员修改佣金配置。role 和 scene 不可修改（唯一标识），变更自动记入 ConfigChangeLog。"""
+>>>>>>> 9991855 (fix: PRD v2 E2E 审计修复 + 安全加固 + 新增功能 + 测试适配)
     config = (
         db.query(CommissionConfig)
         .filter(CommissionConfig.id == config_id)
@@ -200,6 +286,7 @@ def update_commission_config_endpoint(
     if not config:
         raise HTTPException(status_code=404, detail="佣金配置不存在")
 
+<<<<<<< HEAD
     old_value = str(config.reward_value)
     config.reward_value = request.reward_value
 
@@ -215,6 +302,34 @@ def update_commission_config_endpoint(
     logger.info(
         "Commission config updated: config_id=%d role=%s scene=%s old=%s new=%s admin_id=%d",
         config.id, config.role, config.scene, old_value, request.reward_value, current_admin.id,
+=======
+    # 记录旧值
+    old_reward_type = config.reward_type
+    old_reward_value = float(config.reward_value)
+    old_value_str = f"reward_type={old_reward_type}, reward_value={old_reward_value}"
+
+    # 更新字段（reward_type 可选：不传则保持原值）
+    if request.reward_type is not None:
+        config.reward_type = request.reward_type
+    config.reward_value = request.reward_value
+
+    new_value_str = f"reward_type={config.reward_type}, reward_value={float(config.reward_value)}"
+
+    # 写入变更日志
+    log_entry = ConfigChangeLog(
+        admin_id=current_admin.id,
+        config_key=f"commission_config:{config_id}",
+        old_value=old_value_str,
+        new_value=new_value_str,
+    )
+    db.add(log_entry)
+    db.commit()
+    db.refresh(config)
+
+    logger.info(
+        "Commission config updated: id=%d role=%s scene=%s old=(%s) new=(%s) admin_id=%d",
+        config_id, config.role, config.scene, old_value_str, new_value_str, current_admin.id,
+>>>>>>> 9991855 (fix: PRD v2 E2E 审计修复 + 安全加固 + 新增功能 + 测试适配)
     )
 
     return {
@@ -223,7 +338,12 @@ def update_commission_config_endpoint(
             "role": config.role,
             "scene": config.scene,
             "reward_type": config.reward_type,
+<<<<<<< HEAD
             "reward_value": str(config.reward_value),
+=======
+            "reward_value": float(config.reward_value),
+            "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+>>>>>>> 9991855 (fix: PRD v2 E2E 审计修复 + 安全加固 + 新增功能 + 测试适配)
         }
     }
 
@@ -291,9 +411,6 @@ class CreateSeedUserRequest(BaseModel):
     referral_code: Optional[str] = Field(default=None, max_length=128)
 
 
-_ROLE_QUOTA_MAP = {"distributor": 11, "agent": 22}
-
-
 @router.post("/users/create", response_model=dict)
 def create_seed_user_endpoint(
     request: CreateSeedUserRequest,
@@ -301,7 +418,10 @@ def create_seed_user_endpoint(
     current_admin: AdminUser = Depends(get_current_admin),
     referral_service: ReferralService = Depends(get_referral_service),
 ):
-    """创建种子用户（跳过支付流程，自动分配额度 + License + 推荐码）。"""
+    """创建种子用户（跳过支付流程，自动分配额度 + License + 推荐码）。
+
+    S5: 额度从 SystemConfig 动态读取，fallback 到硬编码默认值 (agent=22, distributor=11)。
+    """
     email = request.email.strip().lower()
 
     # 检查邮箱是否已存在
@@ -317,8 +437,37 @@ def create_seed_user_endpoint(
             raise HTTPException(status_code=400, detail="推荐码无效")
         parent_id = result["user_id"]
 
-    # 创建用户
-    quota = _ROLE_QUOTA_MAP.get(request.role, 0)
+    # S5: 从 SystemConfig 动态读取额度，fallback 到硬编码默认值
+    _QUOTA_FALLBACK = {"distributor": 11, "agent": 22}
+    quota = _QUOTA_FALLBACK.get(request.role, 0)
+    try:
+        config_key = f"quota_for_{request.role}"
+        config = db.query(SystemConfig).filter(
+            SystemConfig.config_key == config_key
+        ).first()
+        if config and config.config_value is not None:
+            try:
+                quota = int(config.config_value)
+                logger.info(
+                    "Seed user quota from SystemConfig: role=%s quota=%d",
+                    request.role, quota,
+                )
+            except (ValueError, TypeError):
+                logger.warning(
+                    "SystemConfig '%s' value '%s' 无法转为整数，"
+                    "fallback 到硬编码: %d",
+                    config_key, config.config_value, quota,
+                )
+        else:
+            logger.warning(
+                "SystemConfig key '%s' 不存在，fallback 到硬编码: %d",
+                config_key, quota,
+            )
+    except Exception as e:
+        logger.warning(
+            "无法读取 SystemConfig 额度配置 (%s)，fallback 到硬编码: %d",
+            e, quota,
+        )
     user = User(
         email=email,
         role=request.role,
@@ -458,3 +607,73 @@ def reject_payment_endpoint(
             raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     return {"data": PaymentResponse.model_validate(payment).model_dump()}
+
+
+# ---- 补购申请审核（FR-7）----
+
+_VALID_REPLENISH_STATUSES = ("pending", "approved", "rejected")
+
+
+@router.get("/quota-replenishments", response_model=dict)
+def list_quota_replenishments_endpoint(
+    status: Optional[str] = Query(None, description="筛选状态: pending/approved/rejected"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """管理员查看补购申请列表，支持状态筛选和分页。"""
+    from app.services.quota_replenishment_service import (
+        QuotaReplenishmentService,
+        get_quota_replenishment_service,
+    )
+
+    if status is not None and status not in _VALID_REPLENISH_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的状态参数，允许值: {_VALID_REPLENISH_STATUSES}",
+        )
+
+    service = get_quota_replenishment_service()
+    try:
+        requests, total = service.list_all_requests(
+            db, status=status, limit=limit, offset=offset
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"data": requests, "total": total, "limit": limit, "offset": offset}
+
+
+@router.post("/quota-replenishments/{request_id}/review", response_model=dict)
+def review_quota_replenishment_endpoint(
+    request_id: int,
+    request: "QuotaReplenishReviewRequest",
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """管理员审核补购申请（通过/拒绝）。
+
+    - approved: 追加额度到用户账户
+    - rejected: 拒绝申请，需提供 reject_reason
+    """
+    from app.schemas.quota_replenishment import QuotaReplenishReviewRequest
+    from app.services.quota_replenishment_service import (
+        QuotaReplenishmentService,
+        get_quota_replenishment_service,
+    )
+
+    service = get_quota_replenishment_service()
+    try:
+        if request.action == "approved":
+            result = service.approve_replenish(request_id, current_admin.id, db)
+        else:
+            result = service.reject_replenish(
+                request_id, current_admin.id, request.reject_reason, db
+            )
+    except ValueError as e:
+        if "不存在" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"data": result}

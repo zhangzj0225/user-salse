@@ -90,7 +90,8 @@ class TestAdminMe:
         from app.models.user import User
         db_session.add(User(email="test@example.com", role="distributor", status="active"))
         db_session.flush()
-
+        # PRD v2: 预创建用户
+        db_session.commit()
         # Login as regular user
         client.post("/api/v1/auth/send-email-code", json={"email": "test@example.com"})
         resp = client.post(

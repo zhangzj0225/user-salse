@@ -31,8 +31,8 @@ class TestCreatePaymentAPI:
             "email": "api_invalid@example.com",
             "amount": 100,
         })
-        # schema 层 validator 拦截 → 422
-        assert resp.status_code == 422
+        # S5: 金额校验从 Pydantic validator 移至 service 层动态读取 SystemConfig
+        assert resp.status_code == 400
 
     def test_create_missing_email(self, client, db_session):
         resp = client.post("/api/v1/payments/create", json={

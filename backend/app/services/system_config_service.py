@@ -160,3 +160,100 @@ def reset_config_initialization():
 
 def get_system_config_service() -> SystemConfigService:
     return SystemConfigService()
+
+
+# ═════════════════════════════════════════════════════════════
+# 动态配置读取工具（带 fallback 到 constants.py 硬编码默认值）
+# ═════════════════════════════════════════════════════════════
+
+def _get_config_value(db: Session, key: str, default: str | None = None) -> str | None:
+    """从 SystemConfig 表读取单个配置项，不存在时返回 default。"""
+    try:
+        config = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
+        if config and config.config_value is not None:
+            return config.config_value
+    except Exception:
+        pass
+    return default
+
+
+def get_dynamic_payment_configs(db: Session) -> dict:
+    """动态读取支付相关配置，fallback 到 constants.py 硬编码默认值。
+
+    Returns:
+        {
+            "valid_amounts": set[int],       # 有效支付金额集合
+            "amount_role_map": dict,          # {金额: target_role}
+            "role_quota_map": dict,           # {"agent": 配额, "distributor": 配额}
+        }
+    """
+    # ── 1. 读取金额配置 ──
+    # 配置 key → 对应 target_role 的映射
+    _AMOUNT_KEY_ROLE_MAP = {
+        "payment_amount_888": "member_license",
+        "payment_amount_5000": "distributor",
+        "payment_amount_10000": "agent",
+    }
+
+    amount_role_map: dict[int, str] = {}
+    for key, role in _AMOUNT_KEY_ROLE_MAP.items():
+        val_str = _get_config_value(db, key)
+        if val_str is not None:
+            try:
+                amount_role_map[int(val_str)] = role
+            except (ValueError, TypeError):
+                logger.warning(
+                    "SystemConfig key '%s' value '%s' 无法转为整数，跳过",
+                    key, val_str,
+                )
+
+    if amount_role_map:
+        logger.info(
+            "使用 SystemConfig 动态支付金额: %s",
+            {a: r for a, r in amount_role_map.items()},
+        )
+    else:
+        from app.core.constants import AMOUNT_ROLE_MAP as _FALLBACK_AMOUNT_ROLE
+        amount_role_map = dict(_FALLBACK_AMOUNT_ROLE)
+        logger.warning(
+            "SystemConfig 中未找到有效支付金额配置，fallback 到 constants.py: %s",
+            set(amount_role_map.keys()),
+        )
+
+    valid_amounts = set(amount_role_map.keys())
+
+    # ── 2. 读取额度配置 ──
+    _ROLE_QUOTA_KEYS = {
+        "agent": "quota_for_agent",
+        "distributor": "quota_for_distributor",
+    }
+
+    role_quota_map: dict[str, int] = {}
+    for role, key in _ROLE_QUOTA_KEYS.items():
+        val_str = _get_config_value(db, key)
+        if val_str is not None:
+            try:
+                role_quota_map[role] = int(val_str)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "SystemConfig key '%s' value '%s' 无法转为整数，跳过",
+                    key, val_str,
+                )
+
+    if role_quota_map:
+        logger.info("使用 SystemConfig 动态额度配置: %s", role_quota_map)
+    else:
+        # fallback 到 constants.py 硬编码
+        # AMOUNT_QUOTA_MAP 是 {金额: 配额}，需要转换: agent→22, distributor→11
+        _FALLBACK_QUOTA_MAP = {"agent": 22, "distributor": 11}
+        role_quota_map = dict(_FALLBACK_QUOTA_MAP)
+        logger.warning(
+            "SystemConfig 中未找到额度配置，fallback 到 constants.py: %s",
+            role_quota_map,
+        )
+
+    return {
+        "valid_amounts": valid_amounts,
+        "amount_role_map": amount_role_map,
+        "role_quota_map": role_quota_map,
+    }

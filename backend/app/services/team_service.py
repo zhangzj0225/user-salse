@@ -81,10 +81,10 @@ class TeamService:
         return subtree_count, node
 
     def _make_node(self, user: User, direct_downline_count: int) -> dict:
-        """创建树节点（含 PRD 要求的邮箱/昵称/角色/注册时间/下级数）。"""
+        """创建树节点。PRD v2 FR-9: 展示每个下级的邮箱、角色、注册时间、下级数。"""
         return {
             "user_id": user.id,
-            "email": user.email,  # PRD FR-9: 展示邮箱
+            "email": user.email,
             "nickname": user.nickname,
             "role": user.role,
             "created_at": user.created_at,
@@ -119,7 +119,7 @@ class TeamService:
 
             chain.append({
                 "user_id": parent.id,
-                "email": parent.email,  # PRD FR-10: 展示邮箱
+                "email": parent.email,
                 "nickname": parent.nickname,
                 "role": parent.role,
                 "level": level,

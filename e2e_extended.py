@@ -80,16 +80,17 @@ chk(bool(at) and len(at) > 20, "X0: Admin login OK")
 print("\n=== A. 佣金规则全覆盖 ===")
 
 # A1: 创建用户 U0（用于后续权限测试）
-# PRD v2: 无 user/member 角色，冷启动登录创建的用户为 distributor
-u0 = login_as(em("U0"))
+u0_info = seed_user(em("U0"), parent_id=None)
+u0 = login_as(u0_info["email"])
 u0t = u0["data"]["token"]
-u0_id = u0["data"]["user"]["id"]
-chk(u0["data"]["user"]["role"] == "distributor", "A1: U0 created as distributor")
+u0_id = u0_info["id"]
+chk(u0["data"]["user"]["role"] == "distributor", "A1: U0 login OK")
 
 # A4: 代理 AG1 推荐充 888 → AG1 获 488.4 (55%)
-ag1 = login_as(em("AG1"))
+ag1_info = seed_user(em("AG1"), parent_id=None)
+ag1 = login_as(ag1_info["email"])
 ag1t = ag1["data"]["token"]
-ag1_id = ag1["data"]["user"]["id"]
+ag1_id = ag1_info["id"]
 rid = recharge(10000, ag1t)["data"]["id"]
 approve_r(rid, at)
 chk(get_me(ag1t)["data"]["role"] == "agent", "A4a: AG1 -> agent")
@@ -108,9 +109,10 @@ chk(len(fr4) >= 1,
     f"A4: agent→child充888 = 488.40 (55%, got {[r['amount'] for r in fr4]})")
 
 # A5: 经销商 DS1 推荐充 5000 → DS1 获 2000 (40%)
-ds1 = login_as(em("DS1"))
+ds1_info = seed_user(em("DS1"), parent_id=None)
+ds1 = login_as(ds1_info["email"])
 ds1t = ds1["data"]["token"]
-ds1_id = ds1["data"]["user"]["id"]
+ds1_id = ds1_info["id"]
 rid = recharge(5000, ds1t)["data"]["id"]
 approve_r(rid, at)
 chk(get_me(ds1t)["data"]["role"] == "distributor", "A5a: DS1 -> distributor")
@@ -148,9 +150,10 @@ print()
 # ═══════════════════════════════════════════
 print("=== B. 充值独立性 ===")
 
-# B1: 冷启动用户充888 → distributor（PRD v2: 无 member 角色）
-indep = login_as(em("indep"))
-indep_email = indep["data"]["user"]["email"]
+# B1: 种子用户充888 → distributor（PRD v2: 无 member 角色）
+indep_info = seed_user(em("indep"), parent_id=None)
+indep = login_as(indep_info["email"])
+indep_email = indep_info["email"]
 indept = indep["data"]["token"]
 rid = recharge(888, indept)["data"]["id"]
 approve_r(rid, at)
@@ -201,7 +204,8 @@ print()
 print("=== C. 充值边界 ===")
 
 # C1: 无效充值金额被拒（Pydantic 422 或服务层 400）
-c1 = login_as(em("C1"))
+c1_info = seed_user(em("C1"), parent_id=None)
+c1 = login_as(c1_info["email"])
 c1t = c1["data"]["token"]
 resp = recharge(1000, c1t)
 chk(resp.get("_e") in (400, 422), f"C1: invalid amount 1000 rejected (code={resp.get('_e')})")
@@ -554,7 +558,8 @@ print()
 
 # ── J19: 冷启动登录断言 ──
 print("=== J19: Cold-Start Login ===")
-u_cold = login_as(em("coldstart"))
+u_cold_info = seed_user(em("coldstart"), parent_id=None)
+u_cold = login_as(u_cold_info["email"])
 cold_me = get_me(u_cold["data"]["token"])["data"]
 chk(cold_me["role"] == "distributor",
     f"J19a: Cold-start role=distributor (got={cold_me['role']})")
@@ -589,7 +594,8 @@ print()
 # ── J22-J23: 线下支付审批 ──
 print("=== J22-J23: Offline Payment ===")
 # J22: 线下审批无推荐码
-u_off1 = login_as(em("offline1"))
+u_off1_info = seed_user(em("offline1"), parent_id=None)
+u_off1 = login_as(u_off1_info["email"])
 utok_off1 = u_off1["data"]["token"]
 poff1 = recharge(10000, utok_off1, email=em("offline1"))["data"]["id"]
 approve_r(poff1, at)
@@ -599,7 +605,8 @@ chk(len(off1_fr) == 0,
     f"J22: Offline approve without referral -> 0 commission")
 
 # J23: 线下审批有推荐码
-u_off2 = login_as(em("offline2"))
+u_off2_info = seed_user(em("offline2"), parent_id=None)
+u_off2 = login_as(u_off2_info["email"])
 utok_off2 = u_off2["data"]["token"]
 poff2 = recharge(10000, utok_off2, email=em("offline2"), referral_code=a_rc_ext)["data"]["id"]
 approve_r(poff2, at)
@@ -638,7 +645,8 @@ print()
 
 # ── J25: 管理员拒绝支付 ──
 print("=== J25: Admin Reject Payment ===")
-u_rej = login_as(em("reject_pay"))
+u_rej_info = seed_user(em("reject_pay"), parent_id=None)
+u_rej = login_as(u_rej_info["email"])
 utok_rej = u_rej["data"]["token"]
 prej = recharge(5000, utok_rej, email=em("reject_pay"))["data"]["id"]
 reject_r(prej, "测试拒绝—黑名单", at)

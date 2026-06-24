@@ -28,6 +28,8 @@ def send_email_code(request: SendEmailCodeRequest, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail=str(e))
     except NotImplementedError:
         raise HTTPException(status_code=501, detail="Email service not available")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     result = {"message": "验证码已发送"}
     if settings.AUTH_MODE == "mock":
         result["code"] = code
@@ -37,6 +39,7 @@ def send_email_code(request: SendEmailCodeRequest, db: Session = Depends(get_db)
 @router.post("/login", response_model=dict)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Email verification code login for existing users only."""
+    """PRD v2: 仅认证已存在用户，不创建新用户。"""
     auth_service = get_auth_service()
     try:
         user, token = auth_service.authenticate(request.email, request.code, db)

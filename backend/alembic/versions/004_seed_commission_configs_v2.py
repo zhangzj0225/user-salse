@@ -17,10 +17,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # PRD v2: 角色仅 distributor/agent，scene 名 first_reward_{amount}
+    # 与 commission_service.py calculate_first_reward 查询一致
     commission_configs = sa.table(
         'commission_configs',
         sa.column('id', sa.Integer),
-        sa.column('role', sa.Enum('user', 'member', 'distributor', 'agent')),
+        sa.column('role', sa.Enum('distributor', 'agent')),
         sa.column('scene', sa.String(32)),
         sa.column('reward_type', sa.Enum('fixed', 'percentage')),
         sa.column('reward_value', sa.DECIMAL(10, 4)),
@@ -40,10 +42,6 @@ def upgrade() -> None:
             {'role': 'distributor', 'scene': 'first_reward_5000', 'reward_type': 'fixed', 'reward_value': 2000.00},
             {'role': 'distributor', 'scene': 'first_reward_10000', 'reward_type': 'fixed', 'reward_value': 4000.00},
             {'role': 'distributor', 'scene': 'team_bonus', 'reward_type': 'percentage', 'reward_value': 0.04},
-            # member (888会员)
-            {'role': 'member', 'scene': 'first_reward_888', 'reward_type': 'fixed', 'reward_value': 177.60},
-            # user (普通用户)
-            {'role': 'user', 'scene': 'first_reward_888', 'reward_type': 'fixed', 'reward_value': 177.60},
         ],
     )
 

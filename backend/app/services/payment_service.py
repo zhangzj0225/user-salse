@@ -7,10 +7,8 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.constants import (
-    VALID_PAYMENT_AMOUNTS, AMOUNT_ROLE_MAP, AMOUNT_QUOTA_MAP, ROLE_LEVEL,
-    get_valid_payment_amounts, get_amount_quota_map,
-)
+from app.core.constants import ROLE_LEVEL
+from app.services.system_config_service import get_dynamic_payment_configs
 from app.models.payment import Payment
 from app.models.user import User
 from app.services.audit_service import AuditService
@@ -49,15 +47,23 @@ class PaymentService:
     ) -> Payment:
         """创建支付订单。
 
-        - 888: target_role='member_license', user_id=NULL
-        - 5000: target_role='distributor', 检查email是否已存在用户
-        - 10000: target_role='agent', 检查email是否已存在用户
+        支付金额由 SystemConfig 动态配置（fallback 到 constants.py 默认值）。
+        - member_license: user_id=NULL
+        - distributor: 检查email是否已存在用户
+        - agent: 检查email是否已存在用户
         """
-        if amount not in get_valid_payment_amounts(db):
-            raise ValueError(f"支付金额必须为 {VALID_PAYMENT_AMOUNTS} 之一")
+        # S5: 从 SystemConfig 动态读取有效金额，fallback 到 constants.py
+        configs = get_dynamic_payment_configs(db)
+        valid_amounts = configs["valid_amounts"]
+        amount_role_map = configs["amount_role_map"]
+
+        if amount not in valid_amounts:
+            raise ValueError(
+                f"支付金额必须为 {sorted(valid_amounts)} 之一"
+            )
 
         email = email.strip().lower()
-        target_role = AMOUNT_ROLE_MAP[amount]
+        target_role = amount_role_map[amount]
 
         # 查找已有用户（用于自我推荐检查；5000/10000 也用于后续逻辑）
         existing_user = db.query(User).filter(User.email == email).first()
@@ -107,17 +113,15 @@ class PaymentService:
         """处理支付成功的业务逻辑（回调和管理员审核共用）。
 
         只 flush 不 commit，由调用方统一 commit。
+        S5: 根据 payment.target_role 分支（而非硬编码金额），target_role
+        在 create_payment 时已由动态配置决定。
         """
-        amount = int(payment.amount)
-
-        if amount == 888:
+        if payment.target_role == "member_license":
             self._handle_license_payment(payment, db)
-        elif amount == 5000:
-            self._handle_role_payment(payment, db, "distributor")
-        elif amount == 10000:
-            self._handle_role_payment(payment, db, "agent")
+        elif payment.target_role in ("distributor", "agent"):
+            self._handle_role_payment(payment, db, payment.target_role)
         else:
-            raise ValueError(f"非法支付金额: {amount}")
+            raise ValueError(f"非法支付 target_role: {payment.target_role}")
 
     def _handle_license_payment(self, payment: Payment, db: Session) -> None:
         """888 支付：生成 License + 邮件发送 + 佣金计算。"""
@@ -151,8 +155,14 @@ class PaymentService:
     def _handle_role_payment(
         self, payment: Payment, db: Session, role: str
     ) -> None:
-        """5000/10000 支付：创建/更新账号 + 额度 + License + 推荐码 + 佣金。"""
-        amount = int(payment.amount)
+        """5000/10000 支付：创建/更新账号 + 额度 + License + 推荐码 + 佣金。
+
+        S5: 额度从 SystemConfig 动态读取，fallback 到 constants.py 硬编码默认值。
+        """
+        # 从 SystemConfig 动态读取额度配置
+        configs = get_dynamic_payment_configs(db)
+        role_quota_map = configs["role_quota_map"]
+        quota = role_quota_map.get(role, 0)
 
         # 验证推荐码，获取推荐人
         referrer_id = None
@@ -172,7 +182,7 @@ class PaymentService:
             current_level = ROLE_LEVEL.get(user.role, 0)
             if new_level >= current_level:
                 user.role = role
-            user.account_quota += AMOUNT_QUOTA_MAP[amount]
+            user.account_quota += quota
             # 设置上级关系（如果尚未设置且有推荐人）
             if not user.parent_id and referrer_id:
                 user.parent_id = referrer_id
@@ -183,7 +193,7 @@ class PaymentService:
                 role=role,
                 status="active",
                 parent_id=referrer_id,
-                account_quota=AMOUNT_QUOTA_MAP[amount],
+                account_quota=quota,
             )
             db.add(user)
             db.flush()

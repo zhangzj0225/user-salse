@@ -9,7 +9,9 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 
 
-VALID_AMOUNTS = (888, 5000, 10000)
+# S5: 有效支付金额由 SystemConfig 动态管理，此常量仅作文档/fallback 参考。
+# 实际校验在 PaymentService.create_payment() 中通过 get_dynamic_payment_configs(db) 完成。
+_VALID_AMOUNTS_DEFAULT = (888, 5000, 10000)
 VALID_TARGET_ROLES = ("member_license", "distributor", "agent")
 
 # redirect_url 白名单（逗号分隔的 hostname 列表，可通过环境变量覆盖）
@@ -24,15 +26,17 @@ class PaymentCreateRequest(BaseModel):
     """创建支付订单请求。"""
 
     email: EmailStr
-    amount: int = Field(..., description="支付金额：888/5000/10000")
+    amount: int = Field(..., gt=0, description="支付金额（由 SystemConfig 动态配置）")
     referral_code: Optional[str] = Field(default=None, max_length=128)
     redirect_url: Optional[str] = Field(default=None, max_length=512)
 
     @field_validator("amount")
     @classmethod
     def validate_amount(cls, v: int) -> int:
-        if v not in VALID_AMOUNTS:
-            raise ValueError(f"支付金额必须为 {VALID_AMOUNTS} 之一")
+        """基础校验：必须为正整数。精确金额校验由 PaymentService.create_payment()
+        通过 SystemConfig 动态配置完成（fallback 到 constants.py 默认值）。"""
+        if v <= 0:
+            raise ValueError("支付金额必须为正整数")
         return v
 
     @field_validator("redirect_url")

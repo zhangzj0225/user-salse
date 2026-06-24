@@ -69,17 +69,18 @@ print("=== SETUP ===")
 at = admin_login()["token"]
 chk(bool(at) and len(at) > 20, "G0: Admin login OK")
 
-# A: cold-start login -> agent (10000)
-a = login_as(em("A"))
+# A: seed then login -> agent (10000)
+a_info = seed_user(em("A"), parent_id=None)
+a = login_as(a_info["email"])
 atok = a["data"]["token"]
-chk(get_me(atok)["data"]["role"] == "distributor", "G0a: A created as distributor")
+chk(get_me(atok)["data"]["role"] == "distributor", "G0a: A login OK")
 rid = recharge(10000, atok)["data"]["id"]
 approve_r(rid, at)
 chk(get_me(atok)["data"]["role"] == "agent", "G0b: A -> agent (10000 approved)")
 a_rc = get_referral_code_str(atok)
 
 # B: seed under A -> distributor (5000)
-a_id = get_me(atok)["data"]["id"]
+a_id = a_info["id"]
 b_info = seed_user(em("B"), parent_id=a_id)
 b = login_as(b_info["email"])
 btok = b["data"]["token"]
@@ -200,7 +201,8 @@ print()
 # GAP3: Recharge Reject
 # ═══════════════════════════════════════════
 print("=== GAP3: Recharge Reject ===")
-u = login_as(em("rej"))
+u_info = seed_user(em("rej"), parent_id=None)
+u = login_as(u_info["email"])
 utok = u["data"]["token"]
 cid = recharge(10000, utok)["data"]["id"]
 reject_r(cid, "test reject recharge", at)
@@ -289,6 +291,7 @@ print()
 # ═══════════════════════════════════════════
 print("=== G18: Duplicate Payment Prevention ===")
 dup_email = em("dup")
+u_dup_info = seed_user(dup_email, parent_id=None)
 u_dup = login_as(dup_email)
 utok_dup = u_dup["data"]["token"]
 p1 = recharge(5000, utok_dup, email=dup_email)
@@ -306,7 +309,8 @@ print()
 print("=== G19-G20: No Referral = No Commission (5000/10000) ===")
 
 # G19: 5000 without referral
-u_nr5k = login_as(em("nr5k"))
+u_nr5k_info = seed_user(em("nr5k"), parent_id=None)
+u_nr5k = login_as(u_nr5k_info["email"])
 utok_nr5k = u_nr5k["data"]["token"]
 pid_nr5k = recharge(5000, utok_nr5k, email=em("nr5k"))["data"]["id"]
 approve_r(pid_nr5k, at)
@@ -320,7 +324,8 @@ chk(cr_nr5k == 0,
     f"G19: 5000 without referral -> 0 commission (DB records={cr_nr5k})")
 
 # G20: 10000 without referral
-u_nr10k = login_as(em("nr10k"))
+u_nr10k_info = seed_user(em("nr10k"), parent_id=None)
+u_nr10k = login_as(u_nr10k_info["email"])
 utok_nr10k = u_nr10k["data"]["token"]
 pid_nr10k = recharge(10000, utok_nr10k, email=em("nr10k"))["data"]["id"]
 approve_r(pid_nr10k, at)
@@ -395,7 +400,8 @@ print()
 # G26: 佣金幂等性（同一支付回调两次）
 # ═══════════════════════════════════════════
 print("=== G26: Commission Idempotency ===")
-u_idem = login_as(em("idem"))
+u_idem_info = seed_user(em("idem"), parent_id=None)
+u_idem = login_as(u_idem_info["email"])
 utok_idem = u_idem["data"]["token"]
 # 用 A 的推荐码支付（有佣金）
 pid_idem = recharge(5000, utok_idem, email=em("idem"), referral_code=a_rc)["data"]["id"]
@@ -436,7 +442,8 @@ print()
 # ═══════════════════════════════════════════
 print("=== G27-G28: Payment Callback Signature ===")
 # 创建一笔支付用于测试回调
-u_cb = login_as(em("cb"))
+u_cb_info = seed_user(em("cb"), parent_id=None)
+u_cb = login_as(u_cb_info["email"])
 utok_cb = u_cb["data"]["token"]
 pid_cb = recharge(5000, utok_cb, email=em("cb"), referral_code=a_rc)["data"]["id"]
 pno_cb = "test_pno_sig_001"

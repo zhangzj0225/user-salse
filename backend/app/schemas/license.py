@@ -31,7 +31,7 @@ class LicenseActivateRequest(BaseModel):
     """License 激活请求。"""
 
     code: str
-    business_user_id: str = Field(..., min_length=1, max_length=128)
+    business_user_id: Optional[str] = Field(default=None, max_length=128)
     business_user_info: Optional[str] = Field(default=None, max_length=512)
 
 
@@ -41,3 +41,11 @@ class LicenseVerifyResponse(BaseModel):
     valid: bool
     status: str
     license_info: Optional[LicenseInfo] = None
+
+
+class GenerateLicenseResponse(BaseModel):
+    """生成裸 License 响应（配额销售场景）。"""
+
+    code: str
+    remaining_quota: int
+    message: str

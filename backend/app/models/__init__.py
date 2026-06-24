@@ -12,6 +12,7 @@ from app.models.audit_log import AuditLog
 from app.models.config_change_log import ConfigChangeLog
 from app.models.system_config import SystemConfig
 from app.models.notification_log import NotificationLog
+from app.models.quota_replenishment import QuotaReplenishment
 
 __all__ = [
     "User",
@@ -27,4 +28,5 @@ __all__ = [
     "AuditLog",
     "ConfigChangeLog",
     "NotificationLog",
+    "QuotaReplenishment",
 ]

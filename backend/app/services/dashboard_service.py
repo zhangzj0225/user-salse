@@ -39,10 +39,16 @@ class DashboardService:
         ).scalar()
         today_payment_total = str(Decimal(today_payment_result))
 
-        # License 统计 — 今日数据
-        license_generated_count = db.query(License).filter(
+        # License 统计（PRD v2 FR-22: 今日 License 生成数、激活数）
+        license_generated_today = db.query(License).filter(
             func.date(License.created_at) == today_str
         ).count()
+        license_activated_today = db.query(License).filter(
+            License.status == "activated",
+            func.date(License.activated_at) == today_str,
+        ).count()
+        # 全量统计（保留以兼容前端历史数据展示）
+        license_generated_count = db.query(License).count()
         license_activated_count = db.query(License).filter(
             License.status == "activated",
             func.date(License.activated_at) == today_str,
@@ -59,6 +65,8 @@ class DashboardService:
             "distributor_count": distributor_count,
             "today_new_users": today_new_users,
             "today_payment_total": today_payment_total,
+            "license_generated_today": license_generated_today,
+            "license_activated_today": license_activated_today,
             "license_generated_count": license_generated_count,
             "license_activated_count": license_activated_count,
             "pending_ticket_count": pending_ticket_count,

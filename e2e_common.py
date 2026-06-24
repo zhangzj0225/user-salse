@@ -202,9 +202,10 @@ def admin_login():
 
 
 def login_user(email):
-    """冷启动登录（首次登录自动创建用户），返回 API 响应 dict。
+    """登录已知用户，返回 API 响应 dict。
 
-    PRD v2: 注册接口已删除，login API 支持首次登录创建用户（mock 模式）。
+    PRD v2: 注册接口已删除，登录仅验证已存在用户（不再自动创建）。
+    用户需通过 seed_user() / admin_create_seed() / 在线支付 5000/10000 预先创建。
     """
     return login_as(email)
 

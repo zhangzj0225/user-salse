@@ -74,18 +74,24 @@ class LicenseService:
         payment_id: int,
         target_role: str,
         db: Session,
+        source: str = "payment",
+        generated_by: int | None = None,
     ) -> License | None:
-        """支付确认后生成 License。
+        """支付确认后生成 License，或通过额度生成裸 License。
 
-        source 统一为 "payment"。
-        user_id 为 None 时（888 支付），License 不关联用户。
+        source="payment"（默认）：支付后生成，user_id 绑定用户，source_id=payment_id。
+        source="sale"：额度销售生成裸 License，user_id 强制为 None（不绑定用户），
+                   source_id=generated_by（记录生成人）。
         """
+        if source == "sale":
+            user_id = None
+
         code = _generate_license_code(user_id)
         license_obj = License(
             code=code,
             user_id=user_id,
-            source="payment",
-            source_id=payment_id,
+            source=source,
+            source_id=generated_by if source == "sale" else payment_id,
             status="unused",
             key_version=CURRENT_KEY_VERSION,
         )
@@ -93,8 +99,8 @@ class LicenseService:
         db.flush()
 
         logger.info(
-            "License generated: user_id=%s payment_id=%d role=%s code_prefix=%s",
-            user_id, payment_id, target_role, code[:8],
+            "License generated: user_id=%s source=%s source_id=%s code_prefix=%s",
+            user_id, source, license_obj.source_id, code[:8],
         )
         return license_obj
 
@@ -143,7 +149,7 @@ class LicenseService:
     def activate_license(
         self,
         code: str,
-        business_user_id: str,
+        business_user_id: str | None,
         business_user_info: str | None,
         db: Session,
     ) -> dict:
@@ -154,6 +160,8 @@ class LicenseService:
         2. DB 查找 License 是否存在（行锁防并发重复激活）
         3. 状态检查（必须为 unused）
         4. 激活：status → activated, activated_user_id, activated_user_info, activated_at
+
+        PRD v2 FR-17: business_user_id 可选（业务系统用户标识）。
 
         返回: {"success": bool, "message": str}
         """

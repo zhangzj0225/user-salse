@@ -54,6 +54,7 @@ class TestTeamAPI:
         assert child["children"] == []
         # PRD FR-9: 应返回 email
         assert "email" in child
+        # PRD v2: 返回 email
         assert child["email"] == "c1@example.com"
 
 
@@ -97,4 +98,5 @@ class TestUpstreamAPI:
         assert chain[0]["nickname"] == "Agent王"
         # PRD FR-10: 应返回 email
         assert "email" in chain[0]
+        # PRD v2: 返回 email
         assert chain[0]["email"] == "agent@example.com"

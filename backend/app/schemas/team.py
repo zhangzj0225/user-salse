@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class TeamNode(BaseModel):
     """下级树节点。"""
     user_id: int
-    email: Optional[str] = None
+    email: str
     nickname: Optional[str] = None
     role: str
     created_at: datetime
@@ -20,7 +20,7 @@ class TeamNode(BaseModel):
 class UpstreamNode(BaseModel):
     """上级链节点。"""
     user_id: int
-    email: Optional[str] = None
+    email: str
     nickname: Optional[str] = None
     role: str
     level: int  # 距当前用户的层级（1=直接上级）
